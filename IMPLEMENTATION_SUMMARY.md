@@ -3,32 +3,6 @@
 ## Overview
 Successfully implemented a multi-process architecture for parallel MEF3 file reading to address pymef's global variable limitations. The implementation enables true parallel I/O on SSD storage, improving prefetch performance.
 
-## Key Changes
-
-### 1. New Module: `mef_worker.py`
-- **MefWorkerProcess**: Individual worker process with isolated MefReader
-- **MefWorkerPool**: Manages multiple worker processes
-- Communication via multiprocessing queues
-- Graceful startup/shutdown handling
-- Per-file MefReader caching within workers
-
-### 2. FileManager Enhancements
-- Added `n_process_workers` parameter (default: 2)
-- Coordinator thread to collect worker results
-- Chunk-to-file mapping for result correlation
-- Fallback to main thread if workers unavailable
-- Enhanced `_load_and_cache_chunk()` to delegate to workers
-
-### 3. Configuration Support
-- New environment variable: `N_PROCESS_WORKERS`
-- Added to `__main__.py` and `gRPCMef3ServerHandler`
-- Backward compatible (works with existing code)
-
-### 4. Documentation
-- Updated README with architecture overview
-- Created PARALLEL_READING_ARCHITECTURE.md with detailed design
-- Added performance tuning guidelines
-- Documented configuration options
 
 ## Performance Results
 
