@@ -128,16 +128,17 @@ Comprehensive benchmarks from `tests/test_access_patterns.py`:
 - MEF Compression: Precision level 2
 - Segment Size: 5 minutes (24 total segments)
 - Test Parameters: 10 segments, 0.3s processing delay
+- Benchmark Setup: n_prefetch=1, cache_capacity_multiplier=30, n_process_workers=2
 
 **Performance Results:**
-- **Concurrent access (3 clients)**: 3.6s - Best performance (2.54x faster than no-prefetch)
-- **Sequential with prefetch**: 6.7s - 15% faster than baseline
-- **Baseline (Direct MefReader)**: 7.7s - Reference point
-- **Sequential without prefetch**: 9.2s - 20% slower than baseline
+- **Concurrent access (3 clients)**: 3.4s - Best performance (2.6x faster than no-prefetch)
+- **Sequential with prefetch**: 6.5s - 16% faster than baseline
+- **Baseline (Direct MefReader)**: 7.6s - Reference point
+- **Sequential without prefetch**: 8.7s - 14% slower than baseline
 
 **Key Findings:**
-- Concurrent access provides **113% improvement** over baseline
-- Prefetching provides **37% improvement** over no-prefetch mode
+- Concurrent access provides **125% improvement** over baseline
+- Prefetching provides **34% improvement** over no-prefetch mode
 - Multi-process architecture successfully enables parallel I/O
 - Server overhead is minimal - actually faster than direct access with prefetching
 

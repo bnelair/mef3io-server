@@ -270,19 +270,20 @@ Test data specifications:
 - **MEF Compression**: Precision level 2
 - **Segment Size**: 5 minutes (24 total segments)
 - **Test Configuration**: 10 segments with 0.3s processing delay between reads
+- **Benchmark Setup**: n_prefetch=1, cache_capacity_multiplier=30, n_process_workers=2
 
 Performance comparison (total time for 10 segments):
 | Access Pattern | Time | vs Baseline | Description |
 |----------------|------|-------------|-------------|
-| **Concurrent (3 clients)** | 3.6s | **+113%** | 3 clients reading different segments simultaneously |
-| **With Prefetch** | 6.7s | **+15%** | Sequential access with n_prefetch=1, n_process_workers=2 |
-| **Baseline (Direct MefReader)** | 7.7s | — | Direct mef_tools access, no server overhead |
-| **Without Prefetch** | 9.2s | **-19%** | Sequential access with no prefetching |
+| **Concurrent (3 clients)** | 3.4s | **+125%** | 3 clients reading different segments simultaneously |
+| **With Prefetch** | 6.5s | **+16%** | Sequential access with n_prefetch=1, n_process_workers=2 |
+| **Baseline (Direct MefReader)** | 7.6s | — | Direct mef_tools access, no server overhead |
+| **Without Prefetch** | 8.7s | **-14%** | Sequential access with no prefetching |
 
 Key findings:
-- Concurrent access provides **2.5x speedup** over no-prefetch mode
-- Prefetching provides **37% speedup** over no-prefetch mode  
-- Server with prefetching is **15% faster** than direct MefReader baseline
+- Concurrent access provides **2.6x speedup** over no-prefetch mode
+- Prefetching provides **34% speedup** over no-prefetch mode  
+- Server with prefetching is **16% faster** than direct MefReader baseline
 - The multi-process architecture enables true parallel I/O despite pymef limitations
 
 **Cache Hit Performance:**

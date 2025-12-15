@@ -34,19 +34,28 @@ Successfully implemented a multi-process architecture for parallel MEF3 file rea
 
 **Comprehensive Benchmarks** (from `tests/test_access_patterns.py`):
 
-Test data: 2 hours continuous EEG, 64 channels, 256 Hz, 5-minute segments
+Test data specifications:
+- **Dataset**: 2 hours continuous EEG data
+- **Channels**: 64
+- **Sampling Rate**: 256 Hz
+- **MEF Compression**: Precision level 2
+- **Segment Size**: 5 minutes (24 total segments)
+- **Test Configuration**: 10 segments, 0.3s processing delay
+- **Benchmark Setup**: n_prefetch=1, cache_capacity_multiplier=30, n_process_workers=2
+
+Performance comparison:
 
 | Configuration | Time (s) | vs Baseline | Description |
 |--------------|----------|-------------|-------------|
-| **Concurrent (3 clients)** | 3.6 | **+113%** | Best - parallel access from 3 clients |
-| **With Prefetch** | 6.7 | **+15%** | Sequential with n_prefetch=1, 2 workers |
-| **Baseline (Direct MefReader)** | 7.7 | — | Direct mef_tools access |
-| **No Prefetch** | 9.2 | **-19%** | Sequential with no prefetching |
+| **Concurrent (3 clients)** | 3.4 | **+125%** | Best - parallel access from 3 clients |
+| **With Prefetch** | 6.5 | **+16%** | Sequential with n_prefetch=1, 2 workers |
+| **Baseline (Direct MefReader)** | 7.6 | — | Direct mef_tools access |
+| **No Prefetch** | 8.7 | **-14%** | Sequential with no prefetching |
 
 **Key Achievements:**
-- Concurrent access: **2.5x faster** than no-prefetch mode
-- Prefetching: **37% faster** than no-prefetch mode
-- Server with prefetch: **15% faster** than direct MefReader
+- Concurrent access: **2.6x faster** than no-prefetch mode
+- Prefetching: **34% faster** than no-prefetch mode
+- Server with prefetch: **16% faster** than direct MefReader
 - Multi-process architecture successfully enables parallel I/O
 
 ## Testing
