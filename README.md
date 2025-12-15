@@ -35,11 +35,33 @@ pip install -r requirements.txt
 ```
 
 ### Docker
-Build and run the server in a container:
+
+**Production Deployment:**
+
+The server is available as pre-built Docker images from GitHub Container Registry and GitLab Container Registry:
+
 ```sh
-docker build -t bnel-mef3-server .
+# Pull from GitHub Container Registry (recommended)
+docker pull ghcr.io/bnelair/brainmaze-mef3-server:latest
+
+# Run the server
+docker run -d \
+  --name mef3-server \
+  -p 50051:50051 \
+  -v /path/to/your/mef/files:/data:ro \
+  -e N_PROCESS_WORKERS=2 \
+  ghcr.io/bnelair/brainmaze-mef3-server:latest
+```
+
+**Local Development:**
+
+Build and run locally for development:
+```sh
+docker build -t bnel-mef3-server -f Dockerfile .
 docker run -e PORT=50051 -p 50051:50051 bnel-mef3-server
 ```
+
+For comprehensive Docker deployment documentation, including Docker Compose, Kubernetes, and CI/CD integration, see [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md).
 
 ## Usage
 
