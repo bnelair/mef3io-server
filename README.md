@@ -25,13 +25,13 @@ This architecture works around pymef's global variable limitations, enabling tru
 
 ### Requirements
 - Python 3.8+
-- `pip install -r requirements.txt`
+- Install using pyproject.toml: `pip install -e .`
 - (Optional) Docker for containerized deployment
 
 ### Local Setup
 Clone the repository and install dependencies:
 ```sh
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### Docker
