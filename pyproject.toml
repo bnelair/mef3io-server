@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bnel-mef3-server"
-version = "0.0.2"
+name = "brainmaze-mef3-server"
+version = "0.1.0"
 description = "A gRPC server and client for efficient, concurrent access to MEF3 files."
 authors = [
     { name = "BNEL Team", email = "your@email.com" }
@@ -12,10 +12,10 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-    "numpy~=2.3.3",
-    "grpcio~=1.75.0",
-    "protobuf~=6.32.1",
-    "grpcio-tools~=1.75.0",
+    "numpy>2.0.0",
+    "grpcio~=1.81.0",
+    "grpcio-tools~=1.81.0",
+    "protobuf>=6.33.5,<7.0.0",
     "mef_tools==1.2.3",
 ]
 
