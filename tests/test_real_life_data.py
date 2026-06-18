@@ -121,15 +121,15 @@ def test_dynamic_parameter_changes(functional_test_mef3_file, launch_server_proc
 
 
 @pytest.mark.slow
-def test_error_handling(functional_test_mef3_file, launch_server_process):
+def test_error_handling(functional_test_mef3_file, launch_server_process, request):
     """
     Test that server errors are properly caught and returned to the client.
     No server crashes should occur.
     """
     pth_mef = functional_test_mef3_file
-    
+
     cl = Mef3Client("localhost:50051")
-    
+    request.addfinalizer(cl.shutdown)
     # Test 1: Request data from unopened file
     x = cl.get_signal_segment(pth_mef, 0)
     assert 'error_message' in x, "Expected error_message in response"
