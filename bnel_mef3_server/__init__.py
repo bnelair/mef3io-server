@@ -5,12 +5,10 @@ This package provides gRPC-based access to MEF3 files, including server, client,
 It is designed for efficient, concurrent, and robust access to large-scale electrophysiology data.
 """
 
-"""Public package exports for the Alera recording parser.
-
-Importing from this module gives callers the stable surface intended for
-downstream use, while the internal ALCP helpers stay available for advanced
-inspection and testing.
-"""
+# Public package exports.
+#
+# Importing from this module provides the stable public surface intended for
+# downstream use.
 
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
