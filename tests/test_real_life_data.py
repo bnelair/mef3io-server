@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 @pytest.mark.slow
-def test_real_life_data(functional_test_mef3_file, launch_server_process):
+def test_real_life_data(functional_test_mef3_file, launch_server_process, request):
     """
     Test real-world usage patterns with dynamic parameter changes.
     Tests server flexibility with window size and active channel changes.
@@ -18,6 +18,7 @@ def test_real_life_data(functional_test_mef3_file, launch_server_process):
     data_len_s = MEF3_FUNCTIONAL_TEST_DURATION_S
 
     cl = Mef3Client("localhost:50051")
+    request.addfinalizer(cl.shutdown)
     cl.open_file(pth_mef)
     fi = cl.get_file_info(pth_mef)
 
