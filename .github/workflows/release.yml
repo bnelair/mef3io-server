@@ -39,8 +39,8 @@ jobs:
       - name: Install release dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
-
+          pip install -e .
+          pip install pytest~=8.4.2 pytest-order pytest-benchmark tqdm build
       - name: Bump version in pyproject.toml
         id: bump
         env:
