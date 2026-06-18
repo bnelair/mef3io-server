@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brainmaze-mef3-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "A gRPC server and client for efficient, concurrent access to MEF3 files."
 authors = [
     { name = "BNEL Team", email = "your@email.com" }
