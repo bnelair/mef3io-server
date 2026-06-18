@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains the Sphinx documentation for the bnel-mef3-server project.
+This directory contains the Sphinx documentation for the brainmaze-mef3-server project.
 
 ## Building Documentation Locally
 

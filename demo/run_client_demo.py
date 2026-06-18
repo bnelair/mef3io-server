@@ -12,7 +12,7 @@ import os
 
 # Path to the demo MEF3 file (should exist in the container or be mounted)
 MEF3_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_file.mefd"))
-MEF3_FILE = '/mnt/Beryllium/filip/bnel-mef3-server/demo/test_file.mefd'
+MEF3_FILE = '/mnt/Beryllium/filip/brainmaze-mef3-server/demo/test_file.mefd'
 print(MEF3_FILE)
 
 # Connect to the server (default Docker port)

@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath('..'))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'bnel-mef3-server'
+project = 'brainmaze-mef3-server'
 copyright = '2025, BNEL Team'
 author = 'BNEL Team'
 release = '0.0.2'

@@ -1,4 +1,4 @@
-# bnel-mef3-server
+# brainmaze-mef3-server
 
 A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files, with LRU caching and background prefetching. Designed for scalable neurophysiology data streaming and analysis.
 
@@ -28,8 +28,8 @@ pip install -e .[dev]
 ### Docker
 Build and run the server in a container (image is based on `ubuntu:24.04` with Python 3.12):
 ```sh
-docker build -f Dockerfile_local -t bnel-mef3-server .
-docker run -e PORT=50051 -p 50051:50051 bnel-mef3-server
+docker build -f Dockerfile_local -t brainmaze-mef3-server .
+docker run -e PORT=50051 -p 50051:50051 brainmaze-mef3-server
 ```
 
 ## Usage
@@ -53,7 +53,7 @@ PORT=50052 N_PREFETCH=2 python -m bnel_mef3_server
 
 ### As a Docker Container
 ```sh
-docker run -e PORT=50051 -e N_PREFETCH=2 -p 50051:50051 bnel-mef3-server
+docker run -e PORT=50051 -e N_PREFETCH=2 -p 50051:50051 brainmaze-mef3-server
 ```
 
 ## Python Usage Examples

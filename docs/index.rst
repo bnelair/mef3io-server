@@ -1,6 +1,6 @@
-.. bnel-mef3-server documentation master file
+.. brainmaze-mef3-server documentation master file
 
-Welcome to bnel-mef3-server's documentation!
+Welcome to brainmaze-mef3-server's documentation!
 =============================================
 
 A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files, with LRU caching and background prefetching. Designed for scalable neurophysiology data streaming and analysis.
@@ -40,8 +40,8 @@ Build and run the server in a container:
 
 .. code-block:: bash
 
-   docker build -t bnel-mef3-server .
-   docker run -e PORT=50051 -p 50051:50051 bnel-mef3-server
+   docker build -t brainmaze-mef3-server .
+   docker run -e PORT=50051 -p 50051:50051 brainmaze-mef3-server
 
 Quick Start
 -----------
