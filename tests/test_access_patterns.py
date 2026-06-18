@@ -96,7 +96,7 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, g
 def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, grpc_server_factory):
     """
     Sequential forward access via gRPC WITHOUT prefetching.
-    20 chunks, 60s each.
+    Uses BENCHMARK_NUM_CHUNKS chunks of BENCHMARK_SEGMENT_SIZE_S seconds each.
     """
     port = grpc_server_factory(n_prefetch=0, cache_capacity_multiplier=0, max_workers=1)
     client = Mef3Client(f"localhost:{port}")
