@@ -1,11 +1,23 @@
-# Use a slim, official Python image as the base
-FROM python:3.12
+# Ubuntu 24.04 (Noble) ships Python 3.12 in its default repos
+FROM ubuntu:24.04
+
+# Avoid interactive prompts during apt installs
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.12 and build tooling
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use an isolated virtualenv (avoids Ubuntu 24.04's PEP 668 "externally managed" restriction)
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3.12 -m venv "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Set the working directory inside the container
 WORKDIR /app
-
-# Install system packages needed by your Python libraries, if any.
-# For now, we assume none are needed beyond what the base image provides.
 
 # Copy all your local code (including pyproject.toml) into the container
 COPY . .
@@ -14,10 +26,10 @@ COPY . .
 RUN chmod +x /app/bnel-mef3-server.sh
 
 # Install the package and its dependencies from pyproject.toml
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
-# Expose the port your gRPC server listens on [cite: 17]
+# Expose the port your gRPC server listens on
 EXPOSE 50051
 
-# The command to run your server [cite: 17]
+# The command to run your server
 CMD ["/app/bnel-mef3-server.sh"]

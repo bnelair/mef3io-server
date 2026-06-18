@@ -26,9 +26,9 @@ pip install -e .[dev]
 ```
 
 ### Docker
-Build and run the server in a container:
+Build and run the server in a container (image is based on `ubuntu:24.04` with Python 3.12):
 ```sh
-docker build -t bnel-mef3-server .
+docker build -f Dockerfile_local -t bnel-mef3-server .
 docker run -e PORT=50051 -p 50051:50051 bnel-mef3-server
 ```
 

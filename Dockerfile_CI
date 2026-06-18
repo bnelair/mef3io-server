@@ -1,5 +1,8 @@
-# Use a slim, official Python image as the base
-FROM python:3.12
+# Ubuntu 24.04 (Noble) ships Python 3.12 in its default repos
+FROM ubuntu:24.04
+
+# Avoid interactive prompts during apt installs
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -9,12 +12,20 @@ ARG GITLAB_PROJECT_ID
 ARG PRIVATE_TOKEN
 ARG CI_COMMIT_TAG
 
-# Install necessary tools (Debian/Ubuntu syntax)
-RUN apt-get update && apt-get install -y \
+# Install Python 3.12, build tooling, and release-download utilities
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    build-essential \
     curl \
     jq \
     unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Use an isolated virtualenv (avoids Ubuntu 24.04's PEP 668 "externally managed" restriction)
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3.12 -m venv "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Print all build arguments for debugging
 RUN echo "GITLAB_PROJECT_ID: $GITLAB_PROJECT_ID" && \
@@ -46,7 +57,7 @@ RUN set -e; d=$(find . -maxdepth 1 -type d -name '*-*' | head -n1); \
 RUN chmod +x /app/bnel-mef3-server.sh
 
 # Install the package and its dependencies from pyproject.toml
-RUN pip install --no-cache-dir . && rm -rf ~/.cache/pip
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir . && rm -rf ~/.cache/pip
 
 # Expose the port your gRPC server listens on
 EXPOSE 50051
