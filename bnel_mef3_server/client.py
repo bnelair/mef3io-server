@@ -208,6 +208,22 @@ class Mef3Client:
             "active_channels": list(resp.active_channels),
             "error_message": getattr(resp, "error_message", "")
         }
+    
+    def get_number_of_segments(self, file_path):
+        """
+        Get the number of segments for a given file.
+
+        Args:
+            file_path (str): Path to the MEF3 file.
+        Returns:
+            dict: Contains file_path, number_of_segments, and error_message.
+        """
+        resp = self.stub.GetNumberOfSegments(pb2.FileInfoRequest(file_path=file_path))
+        return {
+            "file_path": resp.file_path,
+            "number_of_segments": resp.number_of_segments,
+            "error_message": getattr(resp, "error_message", "")
+        }
 
     def shutdown(self):
         """

@@ -147,3 +147,13 @@ class GetActiveChannelsResponse(_message.Message):
     active_channels: _containers.RepeatedScalarFieldContainer[str]
     error_message: str
     def __init__(self, file_path: _Optional[str] = ..., active_channels: _Optional[_Iterable[str]] = ..., error_message: _Optional[str] = ...) -> None: ...
+
+class GetNumberOfSegmentsResponse(_message.Message):
+    __slots__ = ("file_path", "number_of_segments", "error_message")
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    NUMBER_OF_SEGMENTS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    file_path: str
+    number_of_segments: int
+    error_message: str
+    def __init__(self, file_path: _Optional[str] = ..., number_of_segments: _Optional[int] = ..., error_message: _Optional[str] = ...) -> None: ...

@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from bnel_mef3_server.protobufs import gRPCMef3Server_pb2 as bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2
+from bnel_mef3_server.protobufs import gRPCMef3Server_pb2 as gRPCMef3Server__pb2
 
-GRPC_GENERATED_VERSION = '1.75.0'
+GRPC_GENERATED_VERSION = '1.75.1'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in bnel_mef3_server/protobufs/gRPCMef3Server_pb2_grpc.py depends on'
+        + f' but the generated code in gRPCMef3Server_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,43 +36,48 @@ class gRPCMef3ServerStub(object):
         """
         self.OpenFile = channel.unary_unary(
                 '/gRPCMef3Server/OpenFile',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.CloseFile = channel.unary_unary(
                 '/gRPCMef3Server/CloseFile',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.FileInfo = channel.unary_unary(
                 '/gRPCMef3Server/FileInfo',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.SetSignalSegmentSize = channel.unary_unary(
                 '/gRPCMef3Server/SetSignalSegmentSize',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
                 _registered_method=True)
         self.GetSignalSegment = channel.unary_stream(
                 '/gRPCMef3Server/GetSignalSegment',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
+                request_serializer=gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.SignalChunk.FromString,
                 _registered_method=True)
         self.ListOpenFiles = channel.unary_unary(
                 '/gRPCMef3Server/ListOpenFiles',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
                 _registered_method=True)
         self.SetActiveChannels = channel.unary_unary(
                 '/gRPCMef3Server/SetActiveChannels',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
                 _registered_method=True)
         self.GetActiveChannels = channel.unary_unary(
                 '/gRPCMef3Server/GetActiveChannels',
-                request_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
-                response_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
+                request_serializer=gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
+                _registered_method=True)
+        self.GetNumberOfSegments = channel.unary_unary(
+                '/gRPCMef3Server/GetNumberOfSegments',
+                request_serializer=gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+                response_deserializer=gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.FromString,
                 _registered_method=True)
 
 
@@ -127,48 +132,59 @@ class gRPCMef3ServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetNumberOfSegments(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_gRPCMef3ServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'OpenFile': grpc.unary_unary_rpc_method_handler(
                     servicer.OpenFile,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.OpenFileRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'CloseFile': grpc.unary_unary_rpc_method_handler(
                     servicer.CloseFile,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.FileInfoRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'FileInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.FileInfo,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.FileInfoRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'SetSignalSegmentSize': grpc.unary_unary_rpc_method_handler(
                     servicer.SetSignalSegmentSize,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.SetSignalSegmentRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.SetSignalSegmentResponse.SerializeToString,
             ),
             'GetSignalSegment': grpc.unary_stream_rpc_method_handler(
                     servicer.GetSignalSegment,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.SignalChunkRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.SignalChunk.SerializeToString,
             ),
             'ListOpenFiles': grpc.unary_unary_rpc_method_handler(
                     servicer.ListOpenFiles,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
             ),
             'SetActiveChannels': grpc.unary_unary_rpc_method_handler(
                     servicer.SetActiveChannels,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.SetActiveChannelsRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.SetActiveChannelsResponse.SerializeToString,
             ),
             'GetActiveChannels': grpc.unary_unary_rpc_method_handler(
                     servicer.GetActiveChannels,
-                    request_deserializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.FromString,
-                    response_serializer=bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.SerializeToString,
+                    request_deserializer=gRPCMef3Server__pb2.GetActiveChannelsRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.GetActiveChannelsResponse.SerializeToString,
+            ),
+            'GetNumberOfSegments': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNumberOfSegments,
+                    request_deserializer=gRPCMef3Server__pb2.FileInfoRequest.FromString,
+                    response_serializer=gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -196,8 +212,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/OpenFile',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
+            gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -223,8 +239,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/CloseFile',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+            gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -250,8 +266,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/FileInfo',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+            gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -277,8 +293,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/SetSignalSegmentSize',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
+            gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
+            gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -304,8 +320,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/GetSignalSegment',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
+            gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
+            gRPCMef3Server__pb2.SignalChunk.FromString,
             options,
             channel_credentials,
             insecure,
@@ -331,8 +347,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/ListOpenFiles',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
+            gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
+            gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -358,8 +374,8 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/SetActiveChannels',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
+            gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
+            gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -385,8 +401,35 @@ class gRPCMef3Server(object):
             request,
             target,
             '/gRPCMef3Server/GetActiveChannels',
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
-            bnel__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
+            gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
+            gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetNumberOfSegments(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gRPCMef3Server/GetNumberOfSegments',
+            gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+            gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.FromString,
             options,
             channel_credentials,
             insecure,

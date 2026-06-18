@@ -69,6 +69,20 @@ class LRUCache:
         """
         with self.lock:
             return key in self.cache
+    
+    def __len__(self):
+        """Returns the number of items in the cache.
+        
+        Returns:
+            int: Number of items currently in the cache.
+        """
+        with self.lock:
+            return len(self.cache)
+    
+    def clear(self):
+        """Clears all items from the cache."""
+        with self.lock:
+            self.cache.clear()
 
     def clear(self):
         """Clears all items from the cache.

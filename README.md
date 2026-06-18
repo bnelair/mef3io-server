@@ -94,14 +94,19 @@ info = client.open_file("/path/to/file.mefd")
 print("Opened file:", info)
 
 # Set chunk size (in seconds)
-client.set_signal_chunk_size("/path/to/file.mefd", 60)
+resp = client.set_signal_segment_size("/path/to/file.mefd", 60)
+print(f"Number of segments: {resp['number_of_segments']}")
+
+# Query number of segments
+seg_info = client.get_number_of_segments("/path/to/file.mefd")
+print(f"File has {seg_info['number_of_segments']} segments")
 
 # Set active channels (optional)
 client.set_active_channels("/path/to/file.mefd", ["Ch1", "Ch2"])  # Use your channel names
 
-# Get a chunk of signal data (as numpy arrays)
-for arr in client.get_signal_segment("/path/to/file.mefd", chunk_idx=0):
-    print(arr.shape)
+# Get a chunk of signal data (as a single numpy array)
+result = client.get_signal_segment("/path/to/file.mefd", chunk_idx=0)
+print(f"Data shape: {result['shape']}, channels: {result['channel_names']}")
 
 # List open files
 print(client.list_open_files())
@@ -116,6 +121,49 @@ See the [API section](#api) and the Python docstrings for more details on each m
 
 ## API
 The server exposes a gRPC API. See `bnel_mef3_server/protobufs/gRPCMef3Server.proto` for service and message definitions.
+
+## Testing with Large Data
+For testing with real-life large MEF3 files, use the `demo/run_big_data.py` script:
+
+```sh
+# Start the server
+python -m bnel_mef3_server.server &
+
+# Run the big data test
+python demo/run_big_data.py /path/to/large_file.mefd localhost:50051
+```
+
+This script performs comprehensive tests including:
+- Opening large files
+- Setting and resetting segment sizes
+- Querying segment counts
+- Sequential segment retrieval
+- Channel filtering
+- Cache behavior validation
+
+Note: This test may take a long time with very large files and is intended for manual integration testing rather than CI/CD pipelines.
+
+## Logging
+The server provides comprehensive logging for troubleshooting:
+
+- Logs are written to both console and file (`logs/server_YYYY-MM-DDTHH-MM-SS.log`)
+- Log level can be configured via `app_config.json` (default: INFO)
+- Logs include:
+  - File open/close operations
+  - Segment size changes
+  - Cache hits/misses
+  - Prefetch operations
+  - Error handling and stack traces
+  - Docker environment detection
+
+To adjust the log level, create or edit `app_config.json`:
+```json
+{
+  "log_level": "DEBUG"
+}
+```
+
+Available log levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
 
 ## Development
 

@@ -45,28 +45,23 @@ class FileManager:
         Initialize the FileManager.
 
         Args:
-            n_prefetch (int): Number of chunks to prefetch ahead for sequential access.
+            n_prefetch (int): Number of chunks to prefetch before and after each request.
             cache_capacity_multiplier (int): Additional cache capacity beyond the prefetch window.
             max_workers (int): Maximum number of background threads for prefetching.
         """
         self._files = {}
         self._lock = threading.Lock()
 
-        # --- Configuration for caching ---
-        self.n_prefetch = n_prefetch  # Number of chunks to prefetch ahead
-        # Capacity: n_prefetch ahead + extra for keeping past chunks (backward navigation)
-        self.cache_capacity = n_prefetch + cache_capacity_multiplier
+        # --- NEW: Configuration for caching ---
+        self.n_prefetch = n_prefetch  # Number of chunks to prefetch before and after
+        self.cache_capacity = (n_prefetch * 2) + cache_capacity_multiplier
 
-        # --- Dedicated thread pool for background data loading ---
-        # Allow parallel workers for decompression (most time is spent here, not I/O)
+        # --- NEW: Dedicated thread pool for background data loading ---
         self._prefetch_executor = futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix='cache_prefetch'
         )
-        # Track in-progress prefetches with Events: {file_path: {chunk_idx: threading.Event}}
-        # Events allow waiting for chunk completion
+        # Track in-progress prefetches: {file_path: {chunk_idx: threading.Event}}
         self._in_progress = {}
-        # Track last requested chunk per file for sequential access detection
-        self._last_chunk = {}
 
     # --- NEW: Helper method for background loading ---
     def _load_and_cache_chunk(self, file_path, chunk_idx):
@@ -107,27 +102,15 @@ class FileManager:
             rdr = state['reader']
             chunk_info = chunks[chunk_idx]
 
-        # --- Data reading happens outside the main lock (allows parallel decompression) ---
+        # --- Data reading happens outside the main lock ---
         try:
-            # Load all channels in prefetch (active channel filtering happens in get_signal_segment)
-            # We load all channels here because prefetch happens asynchronously and we don't know which
-            # channels will be active when the chunk is requested. This trades memory for flexibility.
             channels = rdr.channels
             data = rdr.get_data(channels, chunk_info['start'], chunk_info['end'])
             data = np.array(data)
 
-            # --- Put loaded data into the cache only if chunk info is still valid ---
-            # This prevents stale data from being cached if segment size changed during prefetch
-            with self._lock:
-                if file_path in self._files:
-                    current_chunks = self._files[file_path]['chunks']
-                    # Verify the chunk_info we used is still valid
-                    if (current_chunks and 0 <= chunk_idx < len(current_chunks) and 
-                        current_chunks[chunk_idx] == chunk_info):
-                        cache.put(chunk_idx, data)
-                        logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
-                    else:
-                        logger.debug(f"Skipping cache put for chunk {chunk_idx} - segment config changed during prefetch")
+            # --- Put loaded data into the cache ---
+            cache.put(chunk_idx, data)
+            logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
         except Exception as e:
             logger.error(f"Error prefetching chunk {chunk_idx} for {file_path}: {e}")
         finally:
@@ -224,12 +207,18 @@ class FileManager:
                     error_message=f"Invalid chunk request: {chunk_idx} for {file_path}"
                 )
                 return
+            # --- PREFETCHING: Submit background tasks to load neighbors FIRST (before waiting) ---
+            # This ensures prefetching happens eagerly, even before we need the current chunk
+            # Batch check all neighbors in one lock acquisition to reduce contention
+            with self._lock:
+                for i in range(1, self.n_prefetch + 1):
+                    neighbor_before = chunk_idx - i
+                    neighbor_after = chunk_idx + i
+                    if neighbor_before >= 0 and neighbor_before not in cache and neighbor_before not in in_progress:
+                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, neighbor_before)
+                    if neighbor_after < len(chunks) and neighbor_after not in cache and neighbor_after not in in_progress:
+                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, neighbor_after)
             
-            # Track last chunk for sequential detection
-            last_chunk_idx = self._last_chunk.get(file_path, -1)
-            self._last_chunk[file_path] = chunk_idx
-            
-            # --- Try to get from cache first ---
             data = cache.get(chunk_idx)
             if data is not None:
                 # --- CACHE HIT ---
@@ -264,7 +253,6 @@ class FileManager:
                     # --- CACHE MISS (not in progress or prefetch failed) ---
                     try:
                         chunk_info = chunks[chunk_idx]
-                        # Load data (allows parallel decompression across multiple threads)
                         data = rdr.get_data(active_channels, chunk_info['start'], chunk_info['end'])
                         data = np.array(data)
                         cache.put(chunk_idx, data)
@@ -309,16 +297,6 @@ class FileManager:
                     channel_names=active_channels,
                     error_message=""
                 )
-            
-            # --- PREFETCHING: Trigger after serving current chunk ---
-            # This happens while client is processing the data
-            # Prefetch next n_prefetch chunks for sequential forward access
-            with self._lock:
-                for i in range(1, self.n_prefetch + 1):
-                    future_chunk = chunk_idx + i
-                    if future_chunk < len(chunks) and future_chunk not in cache and future_chunk not in in_progress:
-                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, future_chunk)
-                        
         except Exception as e:
             logger.error(f"Unexpected error in get_signal_segment: {e}")
             yield gRPCMef3Server_pb2.SignalChunk(
@@ -455,15 +433,6 @@ class FileManager:
                     else:
                         last_start = start_uutc
                     segments.append({'start': last_start, 'end': end_uutc})
-                
-                # Clear the cache and in-progress tracking when segment size changes to avoid stale data
-                cache = state['cache']
-                cache.clear()
-                # Clear in-progress prefetches for this file
-                if file_path in self._in_progress:
-                    self._in_progress[file_path].clear()
-                logger.debug(f"Cleared cache and in-progress prefetches for {file_path} due to segment size change")
-                
                 state['chunk_duration_s'] = seconds
                 state['chunks'] = segments
                 if segments:

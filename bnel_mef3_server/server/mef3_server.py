@@ -126,6 +126,23 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 active_channels=[],
                 error_message=str(e)
             )
+    
+    def GetNumberOfSegments(self, request, context):
+        logger.info(f"Received GetNumberOfSegments for: {request.file_path}")
+        try:
+            num_segments = self.manager.get_number_of_segments(request.file_path)
+            return gRPCMef3Server_pb2.GetNumberOfSegmentsResponse(
+                file_path=request.file_path,
+                number_of_segments=num_segments,
+                error_message=""
+            )
+        except Exception as e:
+            logger.error(f"Exception in GetNumberOfSegments: {e}")
+            return gRPCMef3Server_pb2.GetNumberOfSegmentsResponse(
+                file_path=request.file_path,
+                number_of_segments=0,
+                error_message=str(e)
+            )
 
 
 class gRPCMef3ServerHandler:

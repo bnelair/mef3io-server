@@ -88,15 +88,19 @@ def test_set_and_get_active_channels_and_signal(mef3_file):
 def test_prefetching_neighbors(mef3_file):
     fm = FileManager(n_prefetch=1)
     fm.open_file(mef3_file)
+    # Set segment size which will create valid chunks based on the actual file
     fm.set_signal_segment_size(mef3_file, 0.1)
     state = fm._files[mef3_file]
-    state['chunks'] = [{'start': 0, 'end': 100}, {'start': 100, 'end': 200}]
-    # Access chunk 1, should prefetch chunk 0
+    
+    # Ensure we have at least 2 chunks to test prefetching
+    assert len(state['chunks']) >= 2, "Need at least 2 chunks for this test"
+    
+    # Access chunk 1, which should trigger prefetch of chunk 0
     list(fm.get_signal_segment(mef3_file, 1))
     # Give some time for prefetch thread to run
-    import time; time.sleep(0.1)
-    # Now chunk 0 should be in cache
-    assert 0 in state['cache']
+    import time; time.sleep(0.2)
+    # Now chunk 0 should be in cache (prefetched as a neighbor)
+    assert 0 in state['cache'], "Chunk 0 should have been prefetched when accessing chunk 1"
 
 
 def test_error_handling_on_open():
