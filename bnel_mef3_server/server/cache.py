@@ -84,9 +84,3 @@ class LRUCache:
         with self.lock:
             self.cache.clear()
 
-    def clear(self):
-        """Clears all items from the cache.
-        """
-        with self.lock:
-            self.cache.clear()
-
