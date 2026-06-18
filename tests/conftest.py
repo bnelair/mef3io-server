@@ -148,7 +148,7 @@ def launch_server_process():
 # --- Server and Client Fixtures ---------------------------------------
 def create_grpc_server(n_prefetch, cache_capacity_multiplier, max_workers):
     """Factory function to create a gRPC server with specific FileManager settings."""
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     file_manager = FileManager(n_prefetch, cache_capacity_multiplier, max_workers)
     servicer = gRPCMef3Server(file_manager)
     pb2_grpc.add_gRPCMef3ServerServicer_to_server(servicer, server)
