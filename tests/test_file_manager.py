@@ -11,8 +11,7 @@ import bnel_mef3_server.protobufs.gRPCMef3Server_pb2 as pb2
 
 from .conftest import mef3_file
 
-# @patch("bnel_mef3_server.server.file_manager.gRPCMef3Server_pb2")
-# @patch("bnel_mef3_server.server.file_manager.MefReader")
+
 def test_open_and_close_file(mef3_file):
     fm = FileManager()
     resp = fm.open_file(mef3_file)
@@ -58,6 +57,24 @@ def test_get_signal_segment_and_cache(mef3_file):
     # Second access: should be a cache hit
     chunks2 = list(fm.get_signal_segment(mef3_file, 0))
     assert len(chunks2) > 0
+
+
+def test_set_signal_segment_size_resets_cache_state(mef3_file):
+    fm = FileManager(n_prefetch=0)
+    fm.open_file(mef3_file)
+    fm.set_signal_segment_size(mef3_file, 0.1)
+
+    first_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
+    first_shape = tuple(first_chunk.shape)
+    assert 0 in fm._files[mef3_file]['cache']
+
+    fm.set_signal_segment_size(mef3_file, 0.2)
+
+    assert 0 not in fm._files[mef3_file]['cache']
+    assert not fm._in_progress.get(mef3_file)
+
+    second_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
+    assert tuple(second_chunk.shape) != first_shape
 
 def test_set_and_get_active_channels_and_signal(mef3_file):
     fm = FileManager()
@@ -149,6 +166,7 @@ def access_pattern(file_manager, file_path):
         # time.sleep(0.1)
 
 
+@pytest.mark.benchmark
 def test_with_prefetch_real_file(benchmark, mef3_file):
     """Benchmark the access pattern WITH prefetching on a REAL file."""
     # this is much faster than no-prefetch for data with 256 channels. If this is much slower, the test is probably using a few channels.
@@ -159,6 +177,7 @@ def test_with_prefetch_real_file(benchmark, mef3_file):
     fm.shutdown()
 
 
+@pytest.mark.benchmark
 def test_no_prefetch_real_file(benchmark, mef3_file):
     """Benchmark the access pattern WITHOUT prefetching on a REAL file."""
     fm = FileManager(n_prefetch=0, cache_capacity_multiplier=0)  # Prefetching is turned OFF

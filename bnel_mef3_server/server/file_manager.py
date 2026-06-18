@@ -13,9 +13,7 @@ logger = get_logger("bnel_mef3_server.file_manager")
 
 def is_running_in_docker():
     """Detect if running inside a Docker container."""
-    in_docker = os.path.exists('/.dockerenv')
-    logger.debug(f"Docker detection: {'Running in Docker' if in_docker else 'Not running in Docker'}")
-    return in_docker
+    return os.path.exists('/.dockerenv')
 
 
 def get_actual_file_path(file_path):
@@ -23,9 +21,7 @@ def get_actual_file_path(file_path):
     If running in Docker, prepend /host_root to absolute paths.
     """
     if is_running_in_docker() and os.path.isabs(file_path):
-        mapped_path = '/host_root' + file_path
-        logger.debug(f"Docker path mapping: {file_path} -> {mapped_path}")
-        return mapped_path
+        return '/host_root' + file_path
     return file_path
 
 
@@ -109,40 +105,22 @@ class FileManager:
         # --- Data reading happens outside the main lock ---
         try:
             channels = rdr.channels
-            start_time = chunk_info['start']
-            end_time = chunk_info['end']
-            
-            # Validate time range against file bounds
-            file_start = min(rdr.get_property('start_time'))
-            file_end = max(rdr.get_property('end_time'))
-            
-            if start_time < file_start or end_time > file_end:
-                logger.warning(f"Chunk {chunk_idx} has invalid time range [{start_time}, {end_time}] for file bounds [{file_start}, {file_end}] in {file_path}")
-                # Clamp to valid range
-                start_time = max(start_time, file_start)
-                end_time = min(end_time, file_end)
-                
-                # Check if clamping resulted in invalid range
-                if start_time >= end_time:
-                    logger.error(f"Chunk {chunk_idx} has completely invalid time range after clamping: [{start_time}, {end_time}] in {file_path}")
-                    return
-            
-            data = rdr.get_data(channels, start_time, end_time)
+            data = rdr.get_data(channels, chunk_info['start'], chunk_info['end'])
             data = np.array(data)
 
             # --- Put loaded data into the cache ---
-            cache.put(chunk_idx, data)
-            logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
+            with self._lock:
+                if file_path in self._files and self._files[file_path]['cache'] is cache:
+                    cache.put(chunk_idx, data)
+                    logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
         except Exception as e:
-            # Use exc_info only for DEBUG level to avoid excessive logging
             logger.error(f"Error prefetching chunk {chunk_idx} for {file_path}: {e}")
-            logger.debug(f"Prefetch error details:", exc_info=True)
         finally:
             # Signal completion and cleanup
             with self._lock:
                 event.set()
-                if file_path in self._in_progress:
-                    self._in_progress[file_path].pop(chunk_idx, None)
+                if self._in_progress.get(file_path) is in_progress:
+                    in_progress.pop(chunk_idx, None)
 
     def open_file(self, file_path):
         """Opens a MEF file and initializes its state.
@@ -153,12 +131,9 @@ class FileManager:
         Returns:
             FileInfoResponse: Protobuf response with file info and open status.
         """
-        logger.info(f"Opening file: {file_path}")
         actual_path = get_actual_file_path(file_path)
-        logger.debug(f"Actual file path (after Docker mapping): {actual_path}")
-        
         if not os.path.exists(actual_path):
-            logger.warning(f"Attempted to open non-existent file: {file_path} (actual: {actual_path})")
+            logger.warning(f"Attempted to open non-existent file: {file_path}")
             return gRPCMef3Server_pb2.FileInfoResponse(
                 file_path=file_path,
                 file_opened=False,
@@ -167,7 +142,6 @@ class FileManager:
         with self._lock:
             if file_path in self._files:
                 # File is already open, return info with error message
-                logger.warning(f"File already open: {file_path}")
                 info = self._get_file_info_unsafe(file_path)
                 info.error_message = f"File already open: {file_path}"
                 return info
@@ -180,9 +154,9 @@ class FileManager:
                     # --- NEW: Initialize a dedicated LRUCache for this file ---
                     'cache': LRUCache(capacity=self.cache_capacity)
                 }
-                logger.info(f"Successfully opened file: {file_path} ({len(rdr.channels)} channels)")
+                logger.info(f"Opened file: {file_path}")
             except Exception as e:
-                logger.error(f"Error opening file {file_path}: {e}", exc_info=True)
+                logger.error(f"Error opening file {file_path}: {e}")
                 return gRPCMef3Server_pb2.FileInfoResponse(
                     file_path=str(file_path),
                     file_opened=False,
@@ -193,7 +167,6 @@ class FileManager:
             state = self._files[file_path]
             if state['chunks']:
                 num_to_prefetch = min(self.n_prefetch + 1, len(state['chunks']))
-                logger.debug(f"Prefetching {num_to_prefetch} initial chunks for {file_path}")
                 for idx in range(num_to_prefetch):
                     self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, idx)
 
@@ -282,33 +255,11 @@ class FileManager:
                     # --- CACHE MISS (not in progress or prefetch failed) ---
                     try:
                         chunk_info = chunks[chunk_idx]
-                        start_time = chunk_info['start']
-                        end_time = chunk_info['end']
-                        
-                        # Validate time range against file bounds
-                        file_start = min(rdr.get_property('start_time'))
-                        file_end = max(rdr.get_property('end_time'))
-                        
-                        if start_time < file_start or end_time > file_end:
-                            logger.warning(f"Chunk {chunk_idx} has invalid time range [{start_time}, {end_time}] for file bounds [{file_start}, {file_end}] in {file_path}")
-                            # Clamp to valid range
-                            start_time = max(start_time, file_start)
-                            end_time = min(end_time, file_end)
-                            
-                            # Check if clamping resulted in invalid range
-                            if start_time >= end_time:
-                                logger.error(f"Chunk {chunk_idx} has completely invalid time range after clamping: [{start_time}, {end_time}] in {file_path}")
-                                yield gRPCMef3Server_pb2.SignalChunk(
-                                    file_path=file_path,
-                                    error_message=f"Invalid time range for chunk {chunk_idx}"
-                                )
-                                return
-                        
-                        data = rdr.get_data(active_channels, start_time, end_time)
+                        data = rdr.get_data(active_channels, chunk_info['start'], chunk_info['end'])
                         data = np.array(data)
                         cache.put(chunk_idx, data)
                     except Exception as e:
-                        logger.error(f"Error loading chunk {chunk_idx} for {file_path}: {e}", exc_info=True)
+                        logger.error(f"Error loading chunk {chunk_idx} for {file_path}: {e}")
                         yield gRPCMef3Server_pb2.SignalChunk(
                             file_path=file_path,
                             error_message=str(e)
@@ -407,32 +358,21 @@ class FileManager:
         Returns:
             FileInfoResponse: Protobuf response indicating the file is closed.
         """
-        logger.info(f"Closing file: {file_path}")
         with self._lock:
             try:
                 if file_path in self._files:
-                    # Get stats before cleanup
-                    state = self._files[file_path]
-                    cache_size = len(state['cache']) if 'cache' in state else 0
-                    num_chunks = len(state.get('chunks', []))
-                    
                     # Clean up resources if necessary (e.g., rdr.close())
                     del self._files[file_path]
                     # Clean up in-progress events for this file
-                    in_progress_count = len(self._in_progress.get(file_path, {}))
                     self._in_progress.pop(file_path, None)
-                    
-                    logger.info(f"Closed and removed file: {file_path} (had {num_chunks} chunks, {cache_size} cached, {in_progress_count} in-progress)")
-                else:
-                    logger.warning(f"Attempted to close file that was not open: {file_path}")
-                    
+                    logger.info(f"Closed and removed file: {file_path}")
                 return gRPCMef3Server_pb2.FileInfoResponse(
                     file_path=file_path,
                     file_opened=False,
                     error_message=""
                 )
             except Exception as e:
-                logger.error(f"Error closing file {file_path}: {e}", exc_info=True)
+                logger.error(f"Error closing file {file_path}: {e}")
                 return gRPCMef3Server_pb2.FileInfoResponse(
                     file_path=file_path,
                     file_opened=False,
@@ -483,23 +423,6 @@ class FileManager:
                 rdr = state['reader']
                 start_uutc = min(rdr.get_property('start_time'))
                 end_uutc = max(rdr.get_property('end_time'))
-                
-                logger.info(f"Setting segment size for {file_path}: {seconds}s, file time range: [{start_uutc}, {end_uutc}]")
-                
-                # Clear cache and in-progress when resetting segment size
-                if 'chunks' in state and state['chunks']:
-                    logger.debug(f"Clearing cache for {file_path} before resetting segment size")
-                    state['cache'].clear()
-                    # Clear in-progress tracking (background threads will complete naturally)
-                    # The events will still be set in the finally blocks of those threads
-                    if file_path in self._in_progress:
-                        # Wait briefly for any in-progress operations to notice the cleared cache
-                        in_progress_events = list(self._in_progress[file_path].values())
-                        self._in_progress[file_path].clear()
-                        # Give existing operations a moment to complete (non-blocking)
-                        for event in in_progress_events[:5]:  # Wait for up to 5 recent operations
-                            event.wait(timeout=0.1)
-                
                 segment_starts = np.arange(start_uutc, end_uutc, seconds * 1e6)
                 segments = []
                 for s in segment_starts:
@@ -512,13 +435,14 @@ class FileManager:
                     else:
                         last_start = start_uutc
                     segments.append({'start': last_start, 'end': end_uutc})
+                state['cache'] = LRUCache(capacity=self.cache_capacity)
+                self._in_progress.pop(file_path, None)
                 state['chunk_duration_s'] = seconds
                 state['chunks'] = segments
                 if segments:
                     logger.info(f"Set segment size to {seconds}s for {file_path}, total segments: {len(segments)}")
                     # Eagerly prefetch the first n_prefetch chunks
                     num_to_prefetch = min(self.n_prefetch + 1, len(segments))
-                    logger.debug(f"Prefetching first {num_to_prefetch} chunks for {file_path}")
                     for idx in range(num_to_prefetch):
                         self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, idx)
 
@@ -535,6 +459,22 @@ class FileManager:
                     error_message=str(e)
                 )
 
+    def get_number_of_segments(self, file_path):
+        """Returns the number of signal segments currently configured for a file.
+
+        Args:
+            file_path (str): Path to the MEF file.
+
+        Returns:
+            int: Number of segments, or 0 if the file is not open or no segment
+                size has been set.
+        """
+        with self._lock:
+            state = self._files.get(file_path)
+            if state is None:
+                return 0
+            return len(state.get('chunks', []))
+
     def list_open_files(self):
         """Lists all currently open MEF files.
 
@@ -543,23 +483,6 @@ class FileManager:
         """
         with self._lock:
             return list(self._files.keys())
-    
-    def get_number_of_segments(self, file_path):
-        """Gets the number of segments for a file.
-        
-        Args:
-            file_path (str): Path to the MEF file.
-        
-        Returns:
-            int: Number of segments, or 0 if file not open or segments not set.
-        """
-        with self._lock:
-            if file_path not in self._files:
-                logger.warning(f"get_number_of_segments: file not open: {file_path}")
-                return 0
-            state = self._files[file_path]
-            chunks = state.get('chunks', [])
-            return len(chunks)
 
     def set_active_channels(self, file_path, channel_names):
         with self._lock:

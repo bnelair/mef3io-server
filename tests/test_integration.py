@@ -8,11 +8,11 @@ from bnel_mef3_server.client import Mef3Client
 from .conftest import mef3_file
 
 
-def test_server_start_and_basic_operations(grpc_server, mef3_file):
+def test_server_start_and_basic_operations(shared_test_server, mef3_file):
     """Test that server can start and handle basic operations."""
     # This test uses the fixture-based server from conftest.py
     # which is already running for all tests
-    port = grpc_server["port"]
+    port = shared_test_server
     client = Mef3Client(f"localhost:{port}")
     
     try:
@@ -45,9 +45,9 @@ def test_server_start_and_basic_operations(grpc_server, mef3_file):
         client.shutdown()
 
 
-def test_repeated_segment_size_changes(grpc_server, mef3_file):
+def test_repeated_segment_size_changes(shared_test_server, mef3_file):
     """Test that setting segment size repeatedly works correctly."""
-    port = grpc_server["port"]
+    port = shared_test_server
     client = Mef3Client(f"localhost:{port}")
     
     try:

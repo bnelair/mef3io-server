@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Semantic version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      publish_to_pypi:
+        description: "Publish the built package to PyPI"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install release dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest~=8.4.2 pytest-order pytest-benchmark tqdm build
+      - name: Bump version in pyproject.toml
+        id: bump
+        env:
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          release_type = os.environ["RELEASE_TYPE"]
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text()
+          match = re.search(r'^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit("Unable to find version in pyproject.toml")
+
+          major, minor, patch = map(int, match.groups())
+          if release_type == "major":
+              major += 1
+              minor = 0
+              patch = 0
+          elif release_type == "minor":
+              minor += 1
+              patch = 0
+          elif release_type == "patch":
+              patch += 1
+          else:
+              raise SystemExit(f"Unsupported release type: {release_type}")
+
+          new_version = f"{major}.{minor}.{patch}"
+          new_text = re.sub(
+              r'^version\s*=\s*"\d+\.\d+\.\d+"\s*$',
+              f'version = "{new_version}"',
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          pyproject.write_text(new_text)
+          github_output = Path(os.environ["GITHUB_OUTPUT"])
+          with github_output.open("a") as fh:
+              fh.write(f"version={new_version}\n")
+          print(new_version)
+          PY
+
+      - name: Run tests
+        run: pytest -q -m "not slow and not benchmark"
+
+      - name: Build distribution artifacts
+        run: python -m build
+
+      - name: Commit version bump
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "Release v${VERSION}"
+          git push
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            dist/* \
+            --title "v${VERSION}" \
+            --generate-notes
+
+      - name: Publish to PyPI
+        if: ${{ inputs.publish_to_pypi }}
+        uses: pypa/gh-action-pypi-publish@release/v1

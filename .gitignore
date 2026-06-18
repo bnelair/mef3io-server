@@ -38,3 +38,5 @@ dist/
 # Sphinx documentation
 docs/_build/
 docs/_autosummary/
+/demo/big_data_demo.mefd/
+/demo/test_file.mefd/
