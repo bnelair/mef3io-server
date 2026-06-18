@@ -2,7 +2,6 @@
 from bnel_mef3_server.client import Mef3Client
 from tests.conftest import MEF3_TEST_FS, MEF3_TEST_CHANNELS, MEF3_FUNCTIONAL_TEST_DURATION_S
 
-import numpy as np
 import pytest
 from tqdm import tqdm
 
