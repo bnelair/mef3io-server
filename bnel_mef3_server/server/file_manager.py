@@ -109,16 +109,18 @@ class FileManager:
             data = np.array(data)
 
             # --- Put loaded data into the cache ---
-            cache.put(chunk_idx, data)
-            logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
+            with self._lock:
+                if file_path in self._files and self._files[file_path]['cache'] is cache:
+                    cache.put(chunk_idx, data)
+                    logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
         except Exception as e:
             logger.error(f"Error prefetching chunk {chunk_idx} for {file_path}: {e}")
         finally:
             # Signal completion and cleanup
             with self._lock:
                 event.set()
-                if file_path in self._in_progress:
-                    self._in_progress[file_path].pop(chunk_idx, None)
+                if self._in_progress.get(file_path) is in_progress:
+                    in_progress.pop(chunk_idx, None)
 
     def open_file(self, file_path):
         """Opens a MEF file and initializes its state.
@@ -433,6 +435,8 @@ class FileManager:
                     else:
                         last_start = start_uutc
                     segments.append({'start': last_start, 'end': end_uutc})
+                state['cache'] = LRUCache(capacity=self.cache_capacity)
+                self._in_progress.pop(file_path, None)
                 state['chunk_duration_s'] = seconds
                 state['chunks'] = segments
                 if segments:

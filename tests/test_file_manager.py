@@ -58,6 +58,24 @@ def test_get_signal_segment_and_cache(mef3_file):
     chunks2 = list(fm.get_signal_segment(mef3_file, 0))
     assert len(chunks2) > 0
 
+
+def test_set_signal_segment_size_resets_cache_state(mef3_file):
+    fm = FileManager(n_prefetch=0)
+    fm.open_file(mef3_file)
+    fm.set_signal_segment_size(mef3_file, 0.1)
+
+    first_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
+    first_shape = tuple(first_chunk.shape)
+    assert 0 in fm._files[mef3_file]['cache']
+
+    fm.set_signal_segment_size(mef3_file, 0.2)
+
+    assert 0 not in fm._files[mef3_file]['cache']
+    assert not fm._in_progress.get(mef3_file)
+
+    second_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
+    assert tuple(second_chunk.shape) != first_shape
+
 def test_set_and_get_active_channels_and_signal(mef3_file):
     fm = FileManager()
     fm.open_file(mef3_file)
