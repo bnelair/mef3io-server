@@ -26,9 +26,19 @@ pip install -e .[dev]
 ```
 
 ### Docker
-Build and run the server in a container (image is based on `ubuntu:24.04` with Python 3.12):
+
+#### Pull the prebuilt image (recommended)
+Released images are published to the GitHub Container Registry (GHCR). The package
+is public, so no login is required:
 ```sh
-docker build -f Dockerfile_local -t brainmaze-mef3-server .
+docker pull ghcr.io/bnelair/brainmaze-mef3-server:latest
+docker run -e PORT=50051 -p 50051:50051 ghcr.io/bnelair/brainmaze-mef3-server:latest
+```
+
+#### Build locally
+The image is based on `ubuntu:24.04` with Python 3.12:
+```sh
+docker build -t brainmaze-mef3-server .
 docker run -e PORT=50051 -p 50051:50051 brainmaze-mef3-server
 ```
 
@@ -37,7 +47,7 @@ docker run -e PORT=50051 -p 50051:50051 brainmaze-mef3-server
 ### As a Python Module
 Run the server with configurable options:
 ```sh
-python -m brainmaze_mef3_server
+python -m brainmaze_mef3_server.server
 ```
 
 #### Configuration via Environment Variables
@@ -48,7 +58,7 @@ python -m brainmaze_mef3_server
 
 Example:
 ```sh
-PORT=50052 N_PREFETCH=2 python -m brainmaze_mef3_server
+PORT=50052 N_PREFETCH=2 python -m brainmaze_mef3_server.server
 ```
 
 ### As a Docker Container
@@ -198,7 +208,7 @@ sphinx-build -b html docs/ docs/_build/html
 The built documentation will be available at `docs/_build/html/index.html`.
 
 #### Online Documentation
-Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch. The documentation is available at: https://bnelair.github.io/brainmaze_data_server/
+Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch. The documentation is available at: https://bnelair.github.io/brainmaze-mef3-server/
 
 The deployment uses GitHub Actions (see `.github/workflows/docs.yml`) and publishes to the `gh-pages` branch.
 

@@ -7,7 +7,7 @@ name = "brainmaze-mef3-server"
 version = "1.0.1"
 description = "A gRPC server and client for efficient, concurrent access to MEF3 files."
 authors = [
-    { name = "BNEL Team", email = "your@email.com" }
+    { name = "Filip Mivalt", email = "mivalt.filip@mayo.edu" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"

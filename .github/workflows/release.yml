@@ -24,6 +24,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
 
     steps:
       - name: Check out repository
@@ -122,3 +124,15 @@ jobs:
       - name: Publish to PyPI
         if: ${{ inputs.publish_to_pypi }}
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Build and push the Docker image for the freshly-created release tag.
+  # Calling the reusable workflow keeps the image-build logic in one place.
+  publish-docker:
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      ref: "v${{ needs.release.outputs.version }}"
+      version: ${{ needs.release.outputs.version }}

@@ -32,7 +32,7 @@ Documentation is automatically built and deployed to GitHub Pages whenever chang
 3. Deploying to the `gh-pages` branch
 4. Publishing to GitHub Pages
 
-The live documentation is available at: https://bnelair.github.io/brainmaze_data_server/
+The live documentation is available at: https://bnelair.github.io/brainmaze-mef3-server/
 
 ## Documentation Structure
 

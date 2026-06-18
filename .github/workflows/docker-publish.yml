@@ -1,0 +1,70 @@
+name: Publish Docker image
+
+# GitHub-native equivalent of the old GitLab "build image -> push to registry" job.
+# Builds the image and pushes it to the GitHub Container Registry (GHCR).
+# Uses the built-in GITHUB_TOKEN, so no secrets need to be configured.
+#
+# This is the single source of the image build+push logic. It is invoked:
+#   - workflow_call     : by release.yml as part of an automated release (the
+#                         normal path; runs exactly once per release)
+#   - workflow_dispatch : manual one-off rebuild from the Actions tab
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref (tag/branch/sha) to build from"
+        required: false
+        type: string
+      version:
+        description: "Explicit version to tag the image with (e.g. 1.2.3)"
+        required: false
+        type: string
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Never build the same ref twice at once.
+concurrency:
+  group: docker-publish-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          # For workflow_call we build the freshly-tagged release ref; otherwise
+          # the ref that triggered the workflow (the pushed tag).
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # github.repository_owner is already lowercase (required for GHCR names)
+          images: ghcr.io/${{ github.repository_owner }}/brainmaze-mef3-server
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
