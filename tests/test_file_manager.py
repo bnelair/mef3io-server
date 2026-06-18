@@ -9,7 +9,7 @@ from brainmaze_mef3_server.server.file_manager import FileManager
 from mef_tools import MefReader
 import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2 as pb2
 
-from .conftest import mef3_file
+from .conftest import mef3_file, record_benchmark_setup
 
 
 def test_open_and_close_file(mef3_file):
@@ -173,6 +173,18 @@ def test_with_prefetch_real_file(benchmark, mef3_file):
     fm = FileManager(n_prefetch=10, cache_capacity_multiplier=10, max_workers=12)  # Prefetching is enabled
     fm.open_file(mef3_file)
     fm.set_signal_segment_size(mef3_file, seconds=60)  # Use 1-second segments
+    n_ch = len(fm._files[mef3_file]['reader'].channels)
+    record_benchmark_setup(
+        benchmark,
+        access="FileManager access_pattern WITH prefetch (in-process)",
+        file_path=mef3_file,
+        total_channels=n_ch,
+        active_channels=n_ch,
+        fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
+        num_chunks=5, segment_size_s=60, rounds="auto",
+        server="FileManager (in-process, no gRPC)",
+        n_prefetch=10, cache_capacity_multiplier=10, prefetch_workers=12,
+    )
     benchmark(access_pattern, fm, mef3_file)
     fm.shutdown()
 
@@ -183,7 +195,18 @@ def test_no_prefetch_real_file(benchmark, mef3_file):
     fm = FileManager(n_prefetch=0, cache_capacity_multiplier=0)  # Prefetching is turned OFF
     fm.open_file(mef3_file)
     fm.set_signal_segment_size(mef3_file, seconds=60)  # Use 1-second segments
-
+    n_ch = len(fm._files[mef3_file]['reader'].channels)
+    record_benchmark_setup(
+        benchmark,
+        access="FileManager access_pattern WITHOUT prefetch (in-process)",
+        file_path=mef3_file,
+        total_channels=n_ch,
+        active_channels=n_ch,
+        fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
+        num_chunks=5, segment_size_s=60, rounds="auto",
+        server="FileManager (in-process, no gRPC)",
+        n_prefetch=0, cache_capacity_multiplier=0, prefetch_workers=4,
+    )
     benchmark(access_pattern, fm, mef3_file)
     fm.shutdown()
 

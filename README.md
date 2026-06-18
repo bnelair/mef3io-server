@@ -231,10 +231,50 @@ Available log levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
 ## Development
 
 ### Running Tests
-All tests are in the `tests/` directory and use `pytest`:
+Install the dev dependencies, then run the suite. All tests are in `tests/` and use `pytest`:
 ```sh
+pip install -e .[dev]
 pytest
 ```
+A plain `pytest` run excludes the long-running `slow` and `benchmark` suites by default
+(configured via `addopts` in `pyproject.toml`), so it stays fast. Opt into them explicitly:
+```sh
+pytest -m slow        # long functional tests against a generated 1-hour file
+pytest -m benchmark   # performance benchmarks (see below)
+```
+
+### Running Benchmarks
+The package ships performance benchmarks (using `pytest-benchmark`, included in the `[dev]`
+and `[test]` extras) under `tests/test_access_patterns.py` and `tests/test_file_manager.py`.
+They compare direct MEF reading vs. the gRPC server with and without prefetching, over a
+generated dataset (2 hours, 64 channels, 256 Hz). Because they generate large data and run a
+real server, they are excluded from normal test runs — run them on demand with:
+```sh
+pip install -e .[dev]
+pytest -m benchmark
+```
+Useful options:
+```sh
+pytest -m benchmark --benchmark-only                 # only timing, skip assertions overhead
+pytest -m benchmark --benchmark-save=baseline        # save results as "baseline"
+pytest -m benchmark --benchmark-compare              # compare against the last saved run
+pytest -m benchmark --benchmark-histogram            # write histogram SVGs
+```
+
+**Each benchmark records the setup it ran under**, so results are self-describing:
+
+- **File / dataset:** file name, total channels in the file, channels actually used under
+  test, sampling rate, precision, and duration.
+- **Server config:** prefetch depth (`n_prefetch`), cache capacity, prefetch worker threads,
+  and gRPC server threads — plus the host's CPU count.
+
+This is attached to each result's `extra_info`. To see it printed on the console, add `-s`;
+to capture it to a file for later analysis, write JSON:
+```sh
+pytest -m benchmark -s                         # print the setup block for each benchmark
+pytest -m benchmark --benchmark-json=results.json   # setup is included under "extra_info"
+```
+> Note: benchmarks are intended for local/manual use and are not run in CI.
 
 ### Linting
 You can use any linter compatible with Google-style docstrings (e.g., `pylint`, `flake8`).

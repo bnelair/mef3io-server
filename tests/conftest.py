@@ -49,8 +49,54 @@ MEF3_TEST_START_OFFSET_DAYS = 100
 # For functional tests (1 hour)
 MEF3_FUNCTIONAL_TEST_DURATION_S = 60 * 60  
 
-# For benchmarks (2 hours) 
+# For benchmarks (2 hours)
 MEF3_BENCHMARK_DURATION_S = 2 * 60 * 60
+
+
+def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
+                           active_channels, fs, precision, duration_s,
+                           num_chunks, segment_size_s, rounds, sleep_seconds=None,
+                           server="none (direct MefReader)", n_prefetch=None,
+                           cache_capacity_multiplier=None, prefetch_workers=None,
+                           grpc_threads=None):
+    """Attach the file/dataset and server setup of a benchmark and print it.
+
+    The info is stored in ``benchmark.extra_info`` (saved by ``--benchmark-save`` /
+    ``--benchmark-json``) and printed so it is visible when running with ``-s``.
+    """
+    info = {
+        "access_pattern": access,
+        # --- File / dataset under test ---
+        "file": os.path.basename(file_path),
+        "file_path": file_path,
+        "total_channels_in_file": total_channels,
+        "channels_under_test": active_channels,
+        "sampling_rate_hz": fs,
+        "precision": precision,
+        "file_duration_s": duration_s,
+        "file_duration_h": round(duration_s / 3600, 2),
+        # --- Workload ---
+        "num_chunks": num_chunks,
+        "segment_size_s": segment_size_s,
+        "rounds": rounds,
+        "sleep_seconds": sleep_seconds,
+        # --- Server config ---
+        "server": server,
+        # --- Host ---
+        "host_cpu_count": os.cpu_count(),
+    }
+    if n_prefetch is not None:
+        info.update({
+            "n_prefetch": n_prefetch,
+            "cache_capacity_multiplier": cache_capacity_multiplier,
+            "cache_capacity": (n_prefetch * 2) + cache_capacity_multiplier,
+            "prefetch_workers": prefetch_workers,
+            "grpc_server_threads": grpc_threads,
+        })
+    benchmark.extra_info.update(info)
+    print(f"\n[benchmark setup] {access}")
+    for k, v in info.items():
+        print(f"    {k}: {v}")
 
 
 @pytest.fixture(scope="session")
