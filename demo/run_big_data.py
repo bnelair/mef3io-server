@@ -7,6 +7,11 @@ real-life data.
 
 This test is designed to work with large files and may take a long time to run.
 It should be run manually for integration testing but not as part of regular CI/CD.
+
+If the server runs in Docker, start it with the host mounted at /host_root, e.g.
+    docker run -p 50051:50051 -v /:/host_root:ro ghcr.io/bnelair/brainmaze-mef3-server:latest
+and pass <path_to_mef3_file> as the absolute path AS IT EXISTS ON THE HOST. The server
+maps it to /host_root/<path> automatically -- do not add /host_root yourself.
 """
 import sys
 import os
@@ -20,6 +25,8 @@ def test_big_data():
     if len(sys.argv) < 2:
         print("Usage: python run_big_data.py <path_to_mef3_file> [server_address]")
         print("Example: python run_big_data.py /path/to/big_file.mefd localhost:50051")
+        print("Note: with a dockerized server, give the absolute HOST path; the server")
+        print("      reads it via the /host_root mount (-v /:/host_root:ro).")
         sys.exit(1)
     
     MEF3_FILE = sys.argv[1]
