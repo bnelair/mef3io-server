@@ -13,8 +13,8 @@ import time
 
 
 # Standard benchmark parameters
-BENCHMARK_NUM_CHUNKS = 10  # All benchmarks use 20 chunks for fair comparison
-BENCHMARK_SEGMENT_SIZE_S = 5*60  # 60 second segments
+BENCHMARK_NUM_CHUNKS = 20  # All benchmarks use 20 chunks for fair comparison
+BENCHMARK_SEGMENT_SIZE_S = 60  # 60 second segments
 ROUNDS = 1
 SLEEP_SECONDS = 0.3 # simulating processing delay
 N_PREFETCH = 1
