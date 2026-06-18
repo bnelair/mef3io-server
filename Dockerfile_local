@@ -7,14 +7,14 @@ WORKDIR /app
 # Install system packages needed by your Python libraries, if any.
 # For now, we assume none are needed beyond what the base image provides.
 
-# Copy all your local code (including requirements.txt) into the container
+# Copy all your local code (including pyproject.toml) into the container
 COPY . .
 
 # Make bnel-mef3-server.sh executable
 RUN chmod +x /app/bnel-mef3-server.sh
 
-# Install Python dependencies [cite: 16]
-RUN pip install --no-cache-dir -r requirements.txt
+# Install the package and its dependencies from pyproject.toml
+RUN pip install --no-cache-dir .
 
 # Expose the port your gRPC server listens on [cite: 17]
 EXPOSE 50051

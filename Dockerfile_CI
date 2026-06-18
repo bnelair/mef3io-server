@@ -45,8 +45,8 @@ RUN set -e; d=$(find . -maxdepth 1 -type d -name '*-*' | head -n1); \
 # Make bnel-mef3-server.sh executable
 RUN chmod +x /app/bnel-mef3-server.sh
 
-# Install Python dependencies from the release
-RUN pip install --no-cache-dir -r requirements.txt && rm -rf ~/.cache/pip
+# Install the package and its dependencies from pyproject.toml
+RUN pip install --no-cache-dir . && rm -rf ~/.cache/pip
 
 # Expose the port your gRPC server listens on
 EXPOSE 50051

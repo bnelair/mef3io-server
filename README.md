@@ -12,14 +12,17 @@ A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysio
 ## Installation
 
 ### Requirements
-- Python 3.8+
-- `pip install -r requirements.txt`
+- Python 3.10+ (3.12 recommended)
 - (Optional) Docker for containerized deployment
 
 ### Local Setup
-Clone the repository and install dependencies:
+Clone the repository and install the package (dependencies come from `pyproject.toml`):
 ```sh
-pip install -r requirements.txt
+pip install .
+```
+For development (tests, benchmarks, build tooling):
+```sh
+pip install -e .[dev]
 ```
 
 ### Docker
