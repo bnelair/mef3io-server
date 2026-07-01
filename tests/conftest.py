@@ -15,6 +15,8 @@ import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
 
 from brainmaze_mef3_server.server.mef3_server import gRPCMef3Server, FileManager
 
+from .benchmark_data import load_benchmark_config, get_or_create_benchmark_file
+
 
 @pytest.fixture(scope="session")
 def mef3_file():
@@ -100,36 +102,25 @@ def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
 
 
 @pytest.fixture(scope="session")
-def benchmark_mef3_file():
+def benchmark_config():
+    """The dataset config driving benchmark file generation.
+
+    Values come from ``tests/benchmark_config.json`` (or ``$BENCHMARK_CONFIG``);
+    edit that file to switch between a small dev dataset and the full benchmark.
     """
-    Creates a realistic MEF3 file for benchmarks.
-    - 64 channels
-    - 256 Hz sampling rate
-    - 2 hours of data
-    - precision=2 as specified
-    - Timestamp set 100 days in past to simulate historical data
-    
-    Session-scoped for optimal performance across all benchmarks.
+    return load_benchmark_config()
+
+
+@pytest.fixture(scope="session")
+def benchmark_mef3_file(benchmark_config):
+    """Path to a persistent, config-driven MEF3 benchmark file.
+
+    The file is generated once from :func:`benchmark_config` and cached on disk
+    (see ``tests/benchmark_data.py``); identical configs are reused across runs
+    instead of being regenerated. Change the dataset by editing
+    ``tests/benchmark_config.json``.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "benchmark_data.mefd")
-        
-        wrt = MefWriter(file_path, overwrite=True)
-        wrt.mef_block_len = 10000
-        wrt.max_nans_written = 0
-        
-        # Use consistent timestamp in microseconds (MEF3 standard)
-        # Set 100 days in the past to simulate historical data
-        s = (datetime.datetime.now().timestamp() - 3600*24*MEF3_TEST_START_OFFSET_DAYS) * 1e6
-        
-        print("\n[Creating benchmark MEF3 file - 2 hours of data]")
-        for idx in range(MEF3_TEST_CHANNELS):
-            chname = f"chan_{idx+1:03d}"
-            x = np.random.randn(MEF3_BENCHMARK_DURATION_S * MEF3_TEST_FS)
-            wrt.write_data(x, chname, s, MEF3_TEST_FS, precision=MEF3_TEST_PRECISION)
-        print("[Benchmark MEF3 file created successfully]")
-        
-        yield file_path
+    return get_or_create_benchmark_file(benchmark_config)
 
 
 @pytest.fixture(scope="module")

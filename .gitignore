@@ -34,6 +34,8 @@ dist/
 
 # Benchmarks
 .benchmarks/
+# Persistent, cached benchmark datasets (generated on demand from benchmark_config.json)
+benchmark_data/
 
 # Sphinx documentation
 docs/_build/

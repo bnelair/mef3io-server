@@ -1,0 +1,56 @@
+{
+  "generated_utc": "2026-07-01T05:00:51.838084+00:00",
+  "dataset": {
+    "channels": 8,
+    "sampling_rate_hz": 256,
+    "duration_s": 1320,
+    "precision": 2
+  },
+  "num_chunks": 20,
+  "segment_size_s": 60,
+  "processing_mode": "compute",
+  "host_cpu_count": 14,
+  "crossover_repeats": null,
+  "rows": [
+    {
+      "compute_repeats": 1,
+      "native_s": 0.33170712494757026,
+      "grpc_prefetch_s": 0.38142791704740375,
+      "grpc_no_prefetch_s": 0.39232008298859,
+      "prefetch_speedup_vs_native": 0.8696456397719462,
+      "prefetch_wins": false
+    },
+    {
+      "compute_repeats": 2,
+      "native_s": 0.3355356249958277,
+      "grpc_prefetch_s": 0.3736607499886304,
+      "grpc_no_prefetch_s": 0.43285379197914153,
+      "prefetch_speedup_vs_native": 0.8979686119187985,
+      "prefetch_wins": false
+    },
+    {
+      "compute_repeats": 4,
+      "native_s": 0.3552432080032304,
+      "grpc_prefetch_s": 0.4473180409986526,
+      "grpc_no_prefetch_s": 0.41694675001781434,
+      "prefetch_speedup_vs_native": 0.7941624871872772,
+      "prefetch_wins": false
+    },
+    {
+      "compute_repeats": 8,
+      "native_s": 0.3976429579779506,
+      "grpc_prefetch_s": 0.43197400006465614,
+      "grpc_no_prefetch_s": 0.49246883299201727,
+      "prefetch_speedup_vs_native": 0.9205252119767231,
+      "prefetch_wins": false
+    },
+    {
+      "compute_repeats": 16,
+      "native_s": 0.4735533749917522,
+      "grpc_prefetch_s": 0.5380904999328777,
+      "grpc_no_prefetch_s": 0.5624315419699997,
+      "prefetch_speedup_vs_native": 0.8800626940093238,
+      "prefetch_wins": false
+    }
+  ]
+}

@@ -9,12 +9,7 @@ import threading
 from mef_tools import MefReader
 from brainmaze_mef3_server.client import Mef3Client
 
-from .conftest import (
-    MEF3_TEST_FS,
-    MEF3_TEST_PRECISION,
-    MEF3_BENCHMARK_DURATION_S,
-    record_benchmark_setup,
-)
+from .conftest import record_benchmark_setup
 
 import time
 
@@ -65,7 +60,7 @@ def direct_mef_reader_access(rdr, num_chunks):
 # --- Benchmark Tests ---
 
 @pytest.mark.benchmark
-def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
+def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file, benchmark_config):
     """
     BASELINE: Direct MefReader access (no server, no cache).
     20 chunks, 60s each.
@@ -79,9 +74,9 @@ def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
         file_path=benchmark_mef3_file,
         total_channels=len(rdr.channels),
         active_channels=len(rdr.channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
@@ -93,7 +88,7 @@ def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
 
 
 @pytest.mark.benchmark
-def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, grpc_server_factory):
+def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, benchmark_config, grpc_server_factory):
     """
     Sequential forward access via gRPC WITH prefetching.
     20 chunks, 60s each.
@@ -114,9 +109,9 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, g
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
@@ -137,7 +132,7 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, g
 
 
 @pytest.mark.benchmark
-def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, grpc_server_factory):
+def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, benchmark_config, grpc_server_factory):
     """
     Sequential forward access via gRPC WITHOUT prefetching.
     Uses BENCHMARK_NUM_CHUNKS chunks of BENCHMARK_SEGMENT_SIZE_S seconds each.
@@ -158,9 +153,9 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, grp
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
