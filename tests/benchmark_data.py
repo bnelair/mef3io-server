@@ -48,6 +48,14 @@ DEFAULT_WORKLOAD = {
     "processing_mode": "compute",  # "compute" (real detector work) | "sleep"
     "processing_cost_s": 0.3,    # per-window delay when processing_mode == "sleep"
     "compute_repeats": 1,        # detector intensity when processing_mode == "compute"
+    # --- multi-tool shared-session benchmark (use case B) ---
+    "num_tools": 4,              # independent tools all processing the SAME session
+    "tool_overlap": 1.0,         # fraction [0..1] of each tool's windows shared with the others
+    "reader_pool_workers": 4,    # worker PROCESSES for the multiprocess reader-pool benchmark
+    # --- two independent windows for the streaming reader-pool benchmark ---
+    "read_window_s": 300,        # FOREGROUND read size (what you request at once), e.g. 5 min
+    "prefetch_chunk_s": 60,      # PREFETCH granularity each worker fetches ahead, e.g. 1 min
+    "prefetch_ahead_chunks": 8,  # how many prefetch chunks to keep scheduled ahead of reading
 }
 
 

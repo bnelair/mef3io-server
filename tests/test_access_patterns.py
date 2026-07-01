@@ -26,13 +26,17 @@ CACHE_CAPACITY_MULTIPLIER = 30
 
 # --- Helper functions for access patterns ---
 
-def grpc_sequential_forward(client, file_path, num_chunks):
-    """Access chunks in forward sequential order via gRPC."""
+def grpc_sequential_forward(client, file_path, channels, start_uutc, num_chunks):
+    """Scroll forward through the recording via gRPC, one window at a time.
+
+    Uses the timestamp-based :meth:`Mef3Client.get_signal_range` (tile cache +
+    background prefetch), so prefetch loads the next tiles during the simulated
+    think-time between windows.
+    """
+    seg_us = int(BENCHMARK_SEGMENT_SIZE_S * 1e6)
     for i in range(num_chunks):
-        ts = time.time()
-        _ = client.get_signal_segment(file_path, i)
-        te = time.time()
-        # print(f"gRPCReader - Chunk {i} read in {te - ts} seconds")
+        s = int(start_uutc) + i * seg_us
+        _ = client.get_signal_range(file_path, channels, s, s + seg_us)
         time.sleep(SLEEP_SECONDS)  # Simulate slight processing delay
 
 
@@ -100,12 +104,12 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, b
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
+    start_uutc = fi['start_uutc']
     client.set_active_channels(benchmark_mef3_file, channels)
-    client.set_signal_segment_size(benchmark_mef3_file, BENCHMARK_SEGMENT_SIZE_S)
 
     record_benchmark_setup(
         benchmark,
-        access="gRPC sequential forward WITH prefetch",
+        access="gRPC sequential forward WITH prefetch (get_signal_range)",
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
@@ -124,7 +128,7 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, b
     )
 
     # Benchmark
-    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
+    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, channels, start_uutc, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
 
     # Cleanup
     client.close_file(benchmark_mef3_file)
@@ -144,12 +148,12 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, ben
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
+    start_uutc = fi['start_uutc']
     client.set_active_channels(benchmark_mef3_file, channels)
-    client.set_signal_segment_size(benchmark_mef3_file, BENCHMARK_SEGMENT_SIZE_S)
 
     record_benchmark_setup(
         benchmark,
-        access="gRPC sequential forward WITHOUT prefetch",
+        access="gRPC sequential forward WITHOUT prefetch (get_signal_range)",
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
@@ -168,7 +172,7 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, ben
     )
 
     # Benchmark
-    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
+    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, channels, start_uutc, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
 
     # Cleanup
     client.close_file(benchmark_mef3_file)

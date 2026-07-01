@@ -153,61 +153,71 @@ def test_shutdown_thread_pool():
 
 
 
-def access_pattern(file_manager, file_path):
+SEGMENT_SIZE_S = 60
+NUM_WINDOWS = 5
+
+
+def access_pattern(file_manager, file_path, channels, start_uutc):
+    """Read NUM_WINDOWS sequential windows via the tile-cache path.
+
+    Exercises ``FileManager.read_signal_range`` (the timestamp-based tile cache +
+    background tile prefetch), not the deprecated window API. Prefetch's benefit
+    shows on windows 1..N-1, whose tiles the previous window scheduled ahead.
     """
-    Defines a sequence of data access to be measured.
-    Accessing the first 5 chunks sequentially is a good test, as the
-    benefit of prefetching will appear on chunks 1 through 4.
-    """
-    for i in range(5):
-        # Consume the generator by converting to a list to ensure
-        # the data is fully processed.
-        _ = list(file_manager.get_signal_segment(file_path, i))
-        # time.sleep(0.1)
+    seg_us = int(SEGMENT_SIZE_S * 1e6)
+    for i in range(NUM_WINDOWS):
+        s = int(start_uutc) + i * seg_us
+        _ = file_manager.read_signal_range(file_path, channels, s, s + seg_us)
+
+
+def _micro_setup(fm, mef3_file):
+    """Open the file and return (channels, start_uutc) for the micro-benchmark."""
+    fm.open_file(mef3_file)
+    rdr = fm._files[mef3_file]['reader']
+    channels = list(rdr.channels)
+    start_uutc = int(min(rdr.get_property('start_time')))
+    return channels, start_uutc
 
 
 @pytest.mark.benchmark
 def test_with_prefetch_real_file(benchmark, mef3_file):
-    """Benchmark the access pattern WITH prefetching on a REAL file."""
-    # this is much faster than no-prefetch for data with 256 channels. If this is much slower, the test is probably using a few channels.
+    """Benchmark the tile-cache access pattern WITH prefetching on a REAL file."""
+    # This should beat no-prefetch when there are many channels to decode; if it
+    # is much slower, the fixture is probably using only a few channels.
     fm = FileManager(n_prefetch=10, cache_capacity_multiplier=10, max_workers=12)  # Prefetching is enabled
-    fm.open_file(mef3_file)
-    fm.set_signal_segment_size(mef3_file, seconds=60)  # Use 1-second segments
-    n_ch = len(fm._files[mef3_file]['reader'].channels)
+    channels, start_uutc = _micro_setup(fm, mef3_file)
     record_benchmark_setup(
         benchmark,
-        access="FileManager access_pattern WITH prefetch (in-process)",
+        access="FileManager read_signal_range WITH prefetch (in-process)",
         file_path=mef3_file,
-        total_channels=n_ch,
-        active_channels=n_ch,
+        total_channels=len(channels),
+        active_channels=len(channels),
         fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
-        num_chunks=5, segment_size_s=60, rounds="auto",
+        num_chunks=NUM_WINDOWS, segment_size_s=SEGMENT_SIZE_S, rounds="auto",
         server="FileManager (in-process, no gRPC)",
         n_prefetch=10, cache_capacity_multiplier=10, prefetch_workers=12,
     )
-    benchmark(access_pattern, fm, mef3_file)
+    benchmark(access_pattern, fm, mef3_file, channels, start_uutc)
     fm.shutdown()
 
 
 @pytest.mark.benchmark
 def test_no_prefetch_real_file(benchmark, mef3_file):
-    """Benchmark the access pattern WITHOUT prefetching on a REAL file."""
+    """Benchmark the tile-cache access pattern WITHOUT prefetching on a REAL file."""
     fm = FileManager(n_prefetch=0, cache_capacity_multiplier=0)  # Prefetching is turned OFF
-    fm.open_file(mef3_file)
-    fm.set_signal_segment_size(mef3_file, seconds=60)  # Use 1-second segments
-    n_ch = len(fm._files[mef3_file]['reader'].channels)
+    channels, start_uutc = _micro_setup(fm, mef3_file)
     record_benchmark_setup(
         benchmark,
-        access="FileManager access_pattern WITHOUT prefetch (in-process)",
+        access="FileManager read_signal_range WITHOUT prefetch (in-process)",
         file_path=mef3_file,
-        total_channels=n_ch,
-        active_channels=n_ch,
+        total_channels=len(channels),
+        active_channels=len(channels),
         fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
-        num_chunks=5, segment_size_s=60, rounds="auto",
+        num_chunks=NUM_WINDOWS, segment_size_s=SEGMENT_SIZE_S, rounds="auto",
         server="FileManager (in-process, no gRPC)",
         n_prefetch=0, cache_capacity_multiplier=0, prefetch_workers=4,
     )
-    benchmark(access_pattern, fm, mef3_file)
+    benchmark(access_pattern, fm, mef3_file, channels, start_uutc)
     fm.shutdown()
 
 

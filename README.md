@@ -98,9 +98,11 @@ python -m brainmaze_mef3_server.server
 
 #### Configuration via Environment Variables
 - `PORT`: gRPC server port (default: 50051)
-- `N_PREFETCH`: Number of chunks to prefetch (default: 3)
-- `CACHE_CAPACITY_MULTIPLIER`: Extra cache slots (default: 3)
+- `N_PREFETCH`: Number of chunks/tiles to prefetch (default: 3)
+- `CACHE_CAPACITY_MULTIPLIER`: Extra (window) cache slots (default: 3)
 - `MAX_WORKERS`: Prefetch thread pool size (default: 4)
+- `TILE_DURATION_S`: Tile length in seconds for timestamp-based access (default: 60)
+- `TILE_CACHE_MB`: Global tile-cache budget in MB, shared across all open files (default: 512)
 
 Example:
 ```sh
@@ -156,20 +158,18 @@ client = Mef3Client("localhost:50052")
 info = client.open_file("/path/to/file.mefd")
 print("Opened file:", info)
 
-# Set chunk size (in seconds)
-resp = client.set_signal_segment_size("/path/to/file.mefd", 60)
-print(f"Number of segments: {resp['number_of_segments']}")
-
-# Query number of segments
-seg_info = client.get_number_of_segments("/path/to/file.mefd")
-print(f"File has {seg_info['number_of_segments']} segments")
-
-# Set active channels (optional)
-client.set_active_channels("/path/to/file.mefd", ["Ch1", "Ch2"])  # Use your channel names
-
-# Get a chunk of signal data (as a single numpy array)
-result = client.get_signal_segment("/path/to/file.mefd", chunk_idx=0)
-print(f"Data shape: {result['shape']}, channels: {result['channel_names']}")
+# --- Recommended: timestamp-based access -----------------------------------
+# Read any channels over any [start_uutc, end_uutc) window (microseconds, uUTC).
+# No need to pre-set a segment grid; the server serves from a per-channel tile
+# cache (reading only what is missing) and prefetches neighboring tiles.
+start_uutc = info["start_uutc"]
+res = client.get_signal_range(
+    "/path/to/file.mefd",
+    channels=["Ch1", "Ch2"],          # or None for all active channels
+    start_uutc=start_uutc,
+    end_uutc=start_uutc + 10_000_000,  # +10 s
+)
+print(f"Data shape: {res['shape']}, dtype: {res['dtype']}, fs: {res['fs']}")
 
 # List open files
 print(client.list_open_files())
@@ -180,10 +180,22 @@ client.close_file("/path/to/file.mefd")
 client.shutdown()
 ```
 
+> **Deprecated: window-based access.** The older segment/window API
+> (`set_signal_segment_size` + `get_signal_segment(chunk_idx)`) still works but is
+> deprecated (it emits a `DeprecationWarning`) in favor of `get_signal_range`,
+> which lets you read any channels over any timestamp range without fixing a
+> segment grid first. Prefer `get_signal_range` for new code.
+
 See the [API section](#api) and the Python docstrings for more details on each method.
 
 ## API
 The server exposes a gRPC API. See `brainmaze_mef3_server/protobufs/gRPCMef3Server.proto` for service and message definitions.
+
+Key RPCs / client methods:
+- **`GetSignalRange`** / `client.get_signal_range(file_path, channels, start_uutc, end_uutc)` —
+  recommended timestamp-based access; streams the requested window as `float32`.
+- `OpenFile`, `CloseFile`, `FileInfo`, `ListOpenFiles`, `SetActiveChannels` / `GetActiveChannels`.
+- _Deprecated:_ `SetSignalSegmentSize`, `GetSignalSegment`, `GetNumberOfSegments` (window-based).
 
 ## Testing with Large Data
 For testing with real-life large MEF3 files, use the `demo/run_big_data.py` script:

@@ -94,6 +94,25 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 error_message=str(e)
             )
 
+    def GetSignalRange(self, request, context):
+        logger.info(
+            f"Received GetSignalRange for [{request.start_uutc}, {request.end_uutc}) "
+            f"from: {request.file_path}"
+        )
+        try:
+            yield from self.manager.stream_signal_range(
+                request.file_path,
+                list(request.channel_names),
+                request.start_uutc,
+                request.end_uutc,
+            )
+        except Exception as e:
+            logger.error(f"Exception in GetSignalRange: {e}")
+            yield gRPCMef3Server_pb2.SignalChunk(
+                file_path=request.file_path,
+                error_message=str(e)
+            )
+
     def ListOpenFiles(self, request, context):
         logger.info("Received ListOpenFiles request")
         try:
@@ -148,14 +167,17 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
 class gRPCMef3ServerHandler:
     """Handler to launch and manage the gRPC MEF3 server lifecycle."""
 
-    def __init__(self, port, n_prefetch=3, cache_capacity_multiplier=3, max_workers=4):
+    def __init__(self, port, n_prefetch=3, cache_capacity_multiplier=3, max_workers=4,
+                 tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024):
         """Initializes the gRPC server and FileManager.
 
         Args:
             port (int): Port to listen on.
-            n_prefetch (int): Number of chunks to prefetch.
-            cache_capacity_multiplier (int): Cache capacity multiplier.
+            n_prefetch (int): Number of chunks/tiles to prefetch.
+            cache_capacity_multiplier (int): Cache capacity multiplier (window path).
             max_workers (int): Max worker threads for prefetching.
+            tile_duration_s (float): Tile length (seconds) for timestamp-based access.
+            tile_cache_bytes (int): Per-file tile cache byte budget.
         """
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 
@@ -163,7 +185,9 @@ class gRPCMef3ServerHandler:
         self.file_manager = FileManager(
             n_prefetch=n_prefetch,
             cache_capacity_multiplier=cache_capacity_multiplier,
-            max_workers=max_workers
+            max_workers=max_workers,
+            tile_duration_s=tile_duration_s,
+            tile_cache_bytes=tile_cache_bytes,
         )
 
         gRPCMef3Server_pb2_grpc.add_gRPCMef3ServerServicer_to_server(

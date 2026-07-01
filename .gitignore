@@ -36,6 +36,8 @@ dist/
 .benchmarks/
 # Persistent, cached benchmark datasets (generated on demand from benchmark_config.json)
 benchmark_data/
+# Raw pytest-benchmark JSON (intermediate; the rendered benchmark_report.md is kept)
+benchmark_results/benchmark.json
 
 # Sphinx documentation
 docs/_build/

@@ -76,20 +76,33 @@ def run_detector(data, workload):
 
 # --- Access patterns ---------------------------------------------------------
 
-def native_processing(rdr, channels, start_uutc, workload):
-    """Detector reading directly from MefReader in-process (local baseline)."""
+def iter_windows(start_uutc, workload):
+    """Yield ``(start_uutc, end_uutc)`` for each sequential detector window.
+
+    Native and gRPC use the *same* timestamp windows so they read identical data.
+    """
     seg_us = workload["segment_size_s"] * 1e6
     for i in range(workload["num_chunks"]):
         s = start_uutc + i * seg_us
-        e = s + seg_us
+        yield int(s), int(s + seg_us)
+
+
+def native_processing(rdr, channels, start_uutc, workload):
+    """Detector reading directly from MefReader in-process (local baseline)."""
+    for s, e in iter_windows(start_uutc, workload):
         data = np.array(rdr.get_data(channels, s, e))
         run_detector(data, workload)
 
 
-def grpc_processing(client, file_path, workload):
-    """Detector reading each window from the gRPC server."""
-    for i in range(workload["num_chunks"]):
-        res = client.get_signal_segment(file_path, i)
+def grpc_processing(client, file_path, channels, start_uutc, workload):
+    """Detector reading each window from the gRPC server via the tile-cache path.
+
+    Uses :meth:`Mef3Client.get_signal_range` (timestamp-based, the recommended
+    access model) so the benchmark exercises the shared ``TileCache`` +
+    background tile prefetch, not the deprecated window API.
+    """
+    for s, e in iter_windows(start_uutc, workload):
+        res = client.get_signal_range(file_path, channels, s, e)
         run_detector(res["array"], workload)
 
 
@@ -150,12 +163,13 @@ def test_processing_grpc_with_prefetch(
     client = Mef3Client(f"localhost:{port}")
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
-    client.set_active_channels(benchmark_mef3_file, fi["channel_names"])
-    client.set_signal_segment_size(benchmark_mef3_file, workload["segment_size_s"])
+    channels = fi["channel_names"]
+    start_uutc = fi["start_uutc"]
+    client.set_active_channels(benchmark_mef3_file, channels)
 
     _record(
         benchmark, benchmark_config, workload,
-        access="detector gRPC WITH prefetch",
+        access="detector gRPC WITH prefetch (get_signal_range)",
         server="gRPC",
         n_prefetch=workload["n_prefetch"],
         cache_capacity_multiplier=workload["cache_capacity_multiplier"],
@@ -163,7 +177,9 @@ def test_processing_grpc_with_prefetch(
         grpc_threads=workload["max_workers"],
     )
     benchmark.pedantic(
-        grpc_processing, args=(client, benchmark_mef3_file, workload), rounds=ROUNDS
+        grpc_processing,
+        args=(client, benchmark_mef3_file, channels, start_uutc, workload),
+        rounds=ROUNDS,
     )
 
     client.close_file(benchmark_mef3_file)
@@ -180,12 +196,13 @@ def test_processing_grpc_no_prefetch(
     client = Mef3Client(f"localhost:{port}")
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
-    client.set_active_channels(benchmark_mef3_file, fi["channel_names"])
-    client.set_signal_segment_size(benchmark_mef3_file, workload["segment_size_s"])
+    channels = fi["channel_names"]
+    start_uutc = fi["start_uutc"]
+    client.set_active_channels(benchmark_mef3_file, channels)
 
     _record(
         benchmark, benchmark_config, workload,
-        access="detector gRPC WITHOUT prefetch",
+        access="detector gRPC WITHOUT prefetch (get_signal_range)",
         server="gRPC",
         n_prefetch=0,
         cache_capacity_multiplier=0,
@@ -193,7 +210,9 @@ def test_processing_grpc_no_prefetch(
         grpc_threads=1,
     )
     benchmark.pedantic(
-        grpc_processing, args=(client, benchmark_mef3_file, workload), rounds=ROUNDS
+        grpc_processing,
+        args=(client, benchmark_mef3_file, channels, start_uutc, workload),
+        rounds=ROUNDS,
     )
 
     client.close_file(benchmark_mef3_file)

@@ -15,7 +15,9 @@
 #   micro        In-process cache micro-benchmark (test_file_manager.py).
 #   access       Sequential access benchmark (test_access_patterns.py).
 #   processing   Detector: native vs gRPC +/- prefetch (test_automated_processing.py).
+#   multitool    Many tools, one session: shared cache vs N-way re-decode.
 #   benchmark    All pytest-benchmark suites (default).
+#   report       Run all benchmark suites, then write a Markdown scenario report.
 #   crossover    Heavy crossover-curve analysis; writes benchmark_results/.
 #   all          benchmark, then crossover.
 #
@@ -69,8 +71,17 @@ case "$TARGET" in
   processing)
     run_pytest -m benchmark tests/test_automated_processing.py "$@"
     ;;
+  multitool)
+    run_pytest -m benchmark tests/test_multitool_shared_session.py "$@"
+    ;;
   benchmark)
     run_pytest -m benchmark "$@"
+    ;;
+  report)
+    RESULTS_JSON="${BENCHMARK_JSON:-benchmark_results/benchmark.json}"
+    mkdir -p "$(dirname "$RESULTS_JSON")"
+    run_pytest -m benchmark --benchmark-json="$RESULTS_JSON" "$@"
+    "$PY" -m tests.benchmark_report "$RESULTS_JSON"
     ;;
   crossover)
     run_pytest -m crossover "$@"
@@ -81,7 +92,7 @@ case "$TARGET" in
     ;;
   *)
     echo "ERROR: unknown target '$TARGET'." >&2
-    echo "Valid targets: data micro access processing benchmark crossover all" >&2
+    echo "Valid targets: data micro access processing multitool benchmark report crossover all" >&2
     exit 2
     ;;
 esac

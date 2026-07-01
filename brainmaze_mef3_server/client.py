@@ -1,3 +1,5 @@
+import warnings
+
 import grpc
 import numpy as np
 
@@ -90,12 +92,24 @@ class Mef3Client:
         """
         Set the segment size (in seconds) for signal data for a given file.
 
+        .. deprecated::
+            The window/segment-based access model is deprecated in favor of
+            timestamp-based access via :meth:`get_signal_range`, which lets you
+            read any channels over any ``[start_uutc, end_uutc)`` without first
+            fixing a segment grid. This method still works for now.
+
         Args:
             file_path (str): Path to the MEF3 file.
             seconds (int): Duration of each segment in seconds.
         Returns:
             dict: Contains file_path and number_of_segments.
         """
+        warnings.warn(
+            "set_signal_segment_size (window-based access) is deprecated; use "
+            "get_signal_range(file_path, channels, start_uutc, end_uutc) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         resp = self.stub.SetSignalSegmentSize(pb2.SetSignalSegmentRequest(file_path=file_path, seconds=seconds))
         return {
             "file_path": resp.file_path,
@@ -105,6 +119,10 @@ class Mef3Client:
     def get_signal_segment(self, file_path, chunk_idx):
         """
         Retrieve the full signal segment (as a single numpy array) and its metadata for the requested segment.
+
+        .. deprecated::
+            Window/segment-based access is deprecated in favor of timestamp-based
+            access via :meth:`get_signal_range`. This method still works for now.
 
         Args:
             file_path (str): Path to the MEF3 file.
@@ -121,6 +139,12 @@ class Mef3Client:
                 'error_message': str (if any)
             }
         """
+        warnings.warn(
+            "get_signal_segment (window-based access) is deprecated; use "
+            "get_signal_range(file_path, channels, start_uutc, end_uutc) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         req = pb2.SignalChunkRequest(file_path=file_path, chunk_idx=chunk_idx)
         arrays = []
         channel_names = None
@@ -164,6 +188,80 @@ class Mef3Client:
             'dtype': dtype,
             'shape': array.shape,
             'error_message': error_message or ''
+        }
+
+    def get_signal_range(self, file_path, channels, start_uutc, end_uutc):
+        """
+        Read arbitrary channels over an arbitrary ``[start_uutc, end_uutc)`` window.
+
+        This is the recommended, timestamp-based access method: you are not
+        restricted to a pre-set segment grid. The server serves the data from its
+        per-channel tile cache (reading only what is missing) and prefetches
+        neighboring tiles for smooth navigation.
+
+        Args:
+            file_path (str): Path to the MEF3 file.
+            channels (list[str] or None): Channels to read. ``None``/empty means the
+                server's active channels (or all channels).
+            start_uutc (int): Inclusive window start in microseconds (uUTC).
+            end_uutc (int): Exclusive window end in microseconds (uUTC).
+        Returns:
+            dict: {
+                'array': np.ndarray (n_channels, n_samples) float32,
+                'channel_names': list,
+                'fs': float,
+                'start_uutc': int,
+                'end_uutc': int,
+                'dtype': str,
+                'shape': tuple,
+                'error_message': str
+            }
+        """
+        req = pb2.SignalRangeRequest(
+            file_path=file_path,
+            channel_names=list(channels) if channels else [],
+            start_uutc=int(start_uutc),
+            end_uutc=int(end_uutc),
+        )
+        arrays = []
+        channel_names = None
+        fs = None
+        dtype = None
+        got_start = None
+        got_end = None
+        error_message = None
+        for chunk in self.stub.GetSignalRange(req):
+            if chunk.error_message:
+                error_message = chunk.error_message
+                break
+            arr = np.frombuffer(chunk.array_bytes, dtype=chunk.dtype).reshape(chunk.shape)
+            arrays.append(arr)
+            channel_names = list(chunk.channel_names)
+            dtype = chunk.dtype
+            fs = chunk.fs
+            got_start = chunk.start_uutc if got_start is None else min(got_start, chunk.start_uutc)
+            got_end = chunk.end_uutc if got_end is None else max(got_end, chunk.end_uutc)
+        if not arrays:
+            return {
+                'array': None,
+                'channel_names': channel_names,
+                'fs': fs,
+                'start_uutc': got_start,
+                'end_uutc': got_end,
+                'dtype': dtype,
+                'shape': None,
+                'error_message': error_message or 'No data returned.',
+            }
+        array = np.concatenate(arrays, axis=1) if len(arrays) > 1 else arrays[0]
+        return {
+            'array': array,
+            'channel_names': channel_names,
+            'fs': fs,
+            'start_uutc': got_start,
+            'end_uutc': got_end,
+            'dtype': dtype,
+            'shape': array.shape,
+            'error_message': error_message or '',
         }
 
     def list_open_files(self):

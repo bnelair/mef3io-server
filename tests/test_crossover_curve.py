@@ -52,10 +52,11 @@ def _time_grpc(mefd_path, workload, grpc_server_factory, *, n_prefetch,
     client = Mef3Client(f"localhost:{port}")
     client.open_file(mefd_path)
     fi = client.get_file_info(mefd_path)
-    client.set_active_channels(mefd_path, fi["channel_names"])
-    client.set_signal_segment_size(mefd_path, workload["segment_size_s"])
+    channels = fi["channel_names"]
+    start_uutc = fi["start_uutc"]
+    client.set_active_channels(mefd_path, channels)
     t0 = time.perf_counter()
-    grpc_processing(client, mefd_path, workload)
+    grpc_processing(client, mefd_path, channels, start_uutc, workload)
     elapsed = time.perf_counter() - t0
     client.close_file(mefd_path)
     client.shutdown()

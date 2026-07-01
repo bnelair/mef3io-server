@@ -6,6 +6,7 @@ service gRPCMef3Server {
   rpc FileInfo(FileInfoRequest) returns (FileInfoResponse) {}
   rpc SetSignalSegmentSize(SetSignalSegmentRequest) returns (SetSignalSegmentResponse) {}
   rpc GetSignalSegment(SignalChunkRequest) returns (stream SignalChunk) {}
+  rpc GetSignalRange(SignalRangeRequest) returns (stream SignalChunk) {}
   rpc ListOpenFiles(ListOpenFilesRequest) returns (ListOpenFilesResponse) {}
   rpc SetActiveChannels(SetActiveChannelsRequest) returns (SetActiveChannelsResponse) {}
   rpc GetActiveChannels(GetActiveChannelsRequest) returns (GetActiveChannelsResponse) {}
@@ -57,6 +58,15 @@ message SetSignalSegmentResponse {
 message SignalChunkRequest {
   string file_path = 1;
   int64 chunk_idx = 2;
+}
+
+// Timestamp-based access: read arbitrary channels over an arbitrary
+// [start_uutc, end_uutc) window. Empty channel_names means "all active channels".
+message SignalRangeRequest {
+  string file_path = 1;
+  repeated string channel_names = 2;
+  int64 start_uutc = 3;
+  int64 end_uutc = 4;
 }
 
 message SignalChunk {

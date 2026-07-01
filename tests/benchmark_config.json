@@ -1,21 +1,25 @@
 {
-  "channels": 8,
+  "channels": 64,
   "sampling_rate_hz": 256,
-  "duration_s": 1320,
+  "duration_s": 21600,
   "precision": 2,
-  "mef_block_len": 10000,
+  "mef_block_len": 1000,
   "start_offset_days": 100,
   "seed": 42,
   "data_dir": "benchmark_data",
   "workload": {
     "num_chunks": 20,
     "segment_size_s": 60,
-    "n_prefetch": 1,
+    "n_prefetch": 5,
     "cache_capacity_multiplier": 30,
     "max_workers": 20,
     "processing_mode": "compute",
-    "processing_cost_s": 0.3,
-    "compute_repeats": 1
+    "processing_cost_s": 0.5,
+    "compute_repeats": 1,
+    "reader_pool_workers": 8,
+    "read_window_s": 300,
+    "prefetch_chunk_s": 60,
+    "prefetch_ahead_chunks": 2
   },
   "crossover": {
     "compute_repeats_sweep": [1, 2, 4, 8, 16],
