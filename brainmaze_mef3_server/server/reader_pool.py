@@ -12,6 +12,7 @@ so this is embarrassingly parallel). Each worker process lazily opens and reuses
 its own ``MefReader`` per file (one pymef session per process). Results are
 returned as ``float32`` arrays.
 """
+import multiprocessing as mp
 import os
 from concurrent.futures import ProcessPoolExecutor
 
@@ -95,7 +96,15 @@ class ReaderProcessPool:
 
     def __init__(self, max_workers=4):
         self.max_workers = max(1, int(max_workers))
-        self._executor = ProcessPoolExecutor(max_workers=self.max_workers)
+        # Use the "spawn" start method regardless of platform. The default on
+        # Linux is "fork", which is unsafe here: this pool is created inside a
+        # multi-threaded gRPC server, and forking while other threads are inside
+        # gRPC's C extension aborts the child ("Other threads are currently
+        # calling into gRPC" -> Fatal Python error). "spawn" starts a clean
+        # interpreter and avoids that entirely.
+        self._executor = ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("spawn")
+        )
         # Background prefetch of time-chunks: {chunk_key: Future}. A chunk is a
         # fixed-duration slice of the requested channels, fetched ahead of reading.
         self._prefetched = {}

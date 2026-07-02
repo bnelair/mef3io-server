@@ -392,18 +392,23 @@ class FileManager:
         pool = self._get_fg_pool()
         if pool is None:
             return
-        futs = []
-        for ch, blocks in jobs.items():
-            fs, cs, S = metas[ch]
-            futs.append((ch, pool.submit_read_tiles(actual_path, ch, blocks, fs, cs, S)))
-        for ch, fut in futs:
-            try:
-                tiles = fut.result()
-            except Exception as e:  # noqa: BLE001 - fall back to in-process assembly
-                logger.error(f"Parallel tile read failed for {ch} in {file_path}: {e}")
-                continue
-            for b, tile in tiles.items():
-                cache.put((file_path, ch, b), tile)
+        try:
+            futs = []
+            for ch, blocks in jobs.items():
+                fs, cs, S = metas[ch]
+                futs.append((ch, pool.submit_read_tiles(actual_path, ch, blocks, fs, cs, S)))
+            for ch, fut in futs:
+                try:
+                    tiles = fut.result()
+                except Exception as e:  # noqa: BLE001 - fall back to in-process assembly
+                    logger.error(f"Parallel tile read failed for {ch} in {file_path}: {e}")
+                    continue
+                for b, tile in tiles.items():
+                    cache.put((file_path, ch, b), tile)
+        except Exception as e:  # noqa: BLE001 - e.g. BrokenProcessPool on submit
+            # The pool is unusable (e.g. a worker died). Don't fail the read: the
+            # assembly loop reads any still-missing tiles in-process.
+            logger.error(f"Foreground decode pool failed for {file_path}: {e}")
 
     def _schedule_window_prefetch(self, file_path, actual_path, channels, metas,
                                   start_uutc, end_uutc, fs):
@@ -460,7 +465,15 @@ class FileManager:
                 return
             in_progress.add(key)
         fs, cs, S = meta
-        fut = pool.submit_read_tiles(actual_path, channel, [block_index], fs, cs, S)
+        try:
+            fut = pool.submit_read_tiles(actual_path, channel, [block_index], fs, cs, S)
+        except Exception as e:  # noqa: BLE001 - e.g. BrokenProcessPool; prefetch is best-effort
+            logger.error(f"Prefetch submit failed ({channel}, {block_index}) for {file_path}: {e}")
+            with self._lock:
+                s = self._tile_in_progress.get(file_path)
+                if s is not None:
+                    s.discard((channel, block_index))
+            return
         fut.add_done_callback(
             lambda f, fp=file_path, ch=channel, b=block_index: self._on_prefetch_done(f, fp, ch, b)
         )
