@@ -168,16 +168,26 @@ class gRPCMef3ServerHandler:
     """Handler to launch and manage the gRPC MEF3 server lifecycle."""
 
     def __init__(self, port, n_prefetch=3, cache_capacity_multiplier=3, max_workers=4,
-                 tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024):
+                 tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
+                 use_process_pool=True, reader_processes=None, prefetch_processes=None,
+                 min_parallel_tiles=2, prefetch_ahead_windows=1,
+                 prefetch_behind_windows=1, cache_ttl_s=1800):
         """Initializes the gRPC server and FileManager.
 
         Args:
             port (int): Port to listen on.
-            n_prefetch (int): Number of chunks/tiles to prefetch.
+            n_prefetch (int): Prefetch depth on the deprecated window/segment path.
             cache_capacity_multiplier (int): Cache capacity multiplier (window path).
-            max_workers (int): Max worker threads for prefetching.
+            max_workers (int): Max worker threads for the prefetch thread fallback.
             tile_duration_s (float): Tile length (seconds) for timestamp-based access.
-            tile_cache_bytes (int): Per-file tile cache byte budget.
+            tile_cache_bytes (int): Global tile cache byte budget.
+            use_process_pool (bool): Decode in worker processes for parallel decode.
+            reader_processes (int or None): Total decode worker processes (auto cpu-1).
+            prefetch_processes (int or None): Background prefetch lane size (auto half).
+            min_parallel_tiles (int): Min missing tiles before fanning out to the pool.
+            prefetch_ahead_windows (int): Windows to prefetch ahead (page forward).
+            prefetch_behind_windows (int): Windows to prefetch behind (page backward).
+            cache_ttl_s (float or None): Discard tiles idle longer than this.
         """
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 
@@ -188,6 +198,13 @@ class gRPCMef3ServerHandler:
             max_workers=max_workers,
             tile_duration_s=tile_duration_s,
             tile_cache_bytes=tile_cache_bytes,
+            use_process_pool=use_process_pool,
+            reader_processes=reader_processes,
+            prefetch_processes=prefetch_processes,
+            min_parallel_tiles=min_parallel_tiles,
+            prefetch_ahead_windows=prefetch_ahead_windows,
+            prefetch_behind_windows=prefetch_behind_windows,
+            cache_ttl_s=cache_ttl_s,
         )
 
         gRPCMef3Server_pb2_grpc.add_gRPCMef3ServerServicer_to_server(

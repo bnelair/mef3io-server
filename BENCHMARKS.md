@@ -27,17 +27,20 @@ naive single-pass case and misleading for the cases the server actually targets.
 |---|----------|--------------------|-------------------------|-------|
 | **A** | **Interactive data viewing** | A dashboard scrolls/jumps through the recording, reading 10 s–5 min of a handful of channels, revisiting regions. | Roughly a **tie on cold reads**; the server wins on **revisits** (warm cache) and hides decode behind human think-time via **prefetch**. Native re-decodes every revisit. | `test_access_patterns.py` (sequential scroll w/ think-time) |
 | **B** | **Batch: many tools, one session** | One iEEG session processed by several tools (spike/seizure/QC), whose data access **overlaps**. "I don't want to read + decrypt/decompress the same data multiple times." | **Server wins.** MEF3 decode is decrypt+decompress; native does it **once per tool**. The shared tile cache decodes each overlapping region **once** and serves every other tool warm. | `test_multitool_shared_session.py` |
-| **C** | **Automated single-pass processing** | One detector walks the whole recording once, window by window, doing real per-window signal processing. | **Depends on decode-vs-compute.** With cheap decode (few channels) native wins — nothing to hide. As per-window compute grows, prefetch overlaps decode with compute and the server catches up / overtakes (see the crossover curve). | `test_automated_processing.py`, `test_crossover_curve.py` |
+| **C** | **Automated single-pass processing** | One detector walks the whole recording once, window by window, doing real per-window signal processing. | **Server now wins at high channel counts.** With the process pool (default) the server decodes upcoming windows **in parallel across processes** and prefetch overlaps that with compute. At 64 ch the isolated crossover sweep shows gRPC+prefetch beating native at **every** intensity (crossover = 1). With very cheap decode (few channels) native can still win — nothing to parallelize/hide. | `test_automated_processing.py`, `test_crossover_curve.py` |
 
 The **native `MefReader` in a loop is the baseline in all three** — it is exactly
 what use case B does N times and what use case C does once.
 
-> A note on parallelism: MEF3 decode in `pymef` is **GIL-bound**, so the current
-> server's thread prefetch does **not** decode in parallel — it only *hides*
-> decode latency behind the client's own work (think-time in A, compute in C) and
-> *reuses* already-decoded data (the cache win in A and B). Real parallel decode
-> needs multiple processes; that is prototyped in `test_reader_pool.py` and is a
-> planned server change, not yet the default path.
+> A note on parallelism: MEF3 decode in `pymef` is **GIL-bound**, so *thread*
+> prefetch does not decode in parallel. The server therefore **decodes in worker
+> processes** (`ReaderProcessPool`, two disjoint lanes: a reserved foreground lane
+> + a background prefetch lane), which **is now the default** (`USE_PROCESS_POOL=1`).
+> This adds genuine parallel decode on top of the two older wins — *hiding* decode
+> behind the client's own work (think-time in A, compute in C) and *reusing*
+> already-decoded data (the cache win in A and B). It is what flips use case C in
+> the server's favour at high channel counts. Set `USE_PROCESS_POOL=0` to fall
+> back to the in-process thread path.
 
 ## TL;DR
 
@@ -63,19 +66,26 @@ native-local baseline** for that use case. It opens with a summary table:
 
 | Use case | Scenario | Mean (s) | Speedup vs native |
 | --- | --- | ---: | ---: |
-| B | gRPC shared tile cache | 4.43 | **2.17x** |
-| B | Native local (baseline) | 9.61 | — |
-| C | Native local (baseline) | 2.10 | — |
-| C | gRPC, no prefetch | 2.67 | 0.79x |
-| C | gRPC + prefetch | 3.29 | 0.64x |
-| A | Native local (baseline) | 8.65 | — |
-| A | gRPC ± prefetch | ~8.70 | ~0.99x |
+| B | gRPC shared tile cache | ~2.7–4.4 | **2.2–2.8x** |
+| B | Native local (baseline) | ~7.7–9.6 | — |
+| C | Native local (baseline) | ~2.0 | — |
+| C | gRPC + prefetch (isolated crossover) | ~1.5 | **~1.2–1.34x** |
+| A | Native local (baseline) | ~8.5 | — |
+| A | gRPC ± prefetch | ~8.7 | ~0.99–1.06x |
 
-(Numbers above are one run on an Apple M3 Max / 14 CPUs — illustrative, not
-canonical.) The takeaways match the use-case model: **B wins big** (decode once,
-serve many); **A is a wash** (think-time dominates and the cache/prefetch just
-keeps pace); **C favours native** for cheap decode, because the in-process,
-GIL-bound server can't hide decode behind compute here.
+(Numbers above are illustrative runs on an Apple M3 Max / 14 CPUs — not canonical;
+regenerate them for your host.) The takeaways match the use-case model: **B wins
+big** (decode once, serve many); **A is a wash** (think-time dominates and the
+cache/prefetch just keeps pace); **C now favours the server** at 64 ch once decode
+runs in parallel across processes — see the crossover curve below.
+
+> ⚠️ The single-shot `test_processing_*` benchmarks (use case C, `rounds=1`) are
+> **high variance**: they include one-time process-pool spawn cost, and when the
+> full `-m benchmark` suite runs it starts *several* servers back-to-back, so their
+> worker pools can oversubscribe the host CPUs. Run-to-run this single figure can
+> swing ~2x and even flip sign. Trust the **crossover sweep** (fresh server per
+> level, isolated) for the use-case-C verdict, not the bundled single shot. A real
+> detector doing a full-recording pass amortizes the spawn cost to nothing.
 
 Regenerate it directly with:
 
@@ -130,23 +140,36 @@ BENCHMARK_CONFIG=/path/to/my_config.json ./run_benchmarks.sh benchmark
   "data_dir": "benchmark_data",// where generated .mefd files are cached (not identity)
 
   // --- workload: HOW the file is accessed (not part of identity) ---
+  // All keys are optional; anything omitted falls back to DEFAULT_WORKLOAD in
+  // tests/benchmark_data.py. Server keys are passed straight through to the
+  // FileManager under test via server_kwargs() (their env-var equivalents are in
+  // parentheses).
   "workload": {
+    // access pattern (shared by every scenario)
     "num_chunks": 20,          // sequential windows processed
     "segment_size_s": 60,      // window length (needs num_chunks*segment_size <= duration_s)
-    "n_prefetch": 1,           // server prefetch depth
-    "cache_capacity_multiplier": 30,
-    "max_workers": 20,         // gRPC server THREADS + prefetch thread pool (not processes)
     "processing_mode": "compute", // "compute" = real detector work; "sleep" = fixed delay
-    "processing_cost_s": 0.3,  // per-window delay when processing_mode == "sleep"
+    "processing_cost_s": 0.5,  // per-window delay when processing_mode == "sleep"
     "compute_repeats": 1,      // detector intensity when processing_mode == "compute"
-    // --- use case B: many tools, one session ---
+    // use case B: many tools, one session
     "num_tools": 4,            // independent tools all processing the SAME session
     "tool_overlap": 1.0,       // fraction [0..1] of each tool's windows shared with others
-    "reader_pool_workers": 4,  // worker PROCESSES for the multiprocess reader-pool benchmark
-    // --- two INDEPENDENT windows for the streaming reader-pool benchmark ---
+    // server under test (passed to the FileManager)
+    "grpc_threads": 20,        // gRPC servicer threads + thread-prefetch fallback (MAX_WORKERS)
+    "use_process_pool": true,  // parallel decode in worker processes (USE_PROCESS_POOL)
+    "reader_processes": null,  // total decode processes; null => auto cpu-1 (READER_PROCESSES)
+    "prefetch_processes": null,// background prefetch lane; null => auto half (PREFETCH_PROCESSES)
+    "min_parallel_tiles": 2,   // min missing tiles before using the pool (MIN_PARALLEL_TILES)
+    "prefetch_ahead_windows": 1,  // windows prefetched ahead / page fwd (PREFETCH_AHEAD_WINDOWS)
+    "prefetch_behind_windows": 1, // windows prefetched behind / page back (PREFETCH_BEHIND_WINDOWS)
+    "tile_duration_s": 60,     // range-path tile length (TILE_DURATION_S)
+    "tile_cache_mb": 512,      // global tile-cache budget (TILE_CACHE_MB)
+    "cache_ttl_s": 1800,       // discard tiles idle longer than this (CACHE_TTL_S)
+    // ReaderProcessPool micro-benchmark ONLY (isolated prototype, test_reader_pool.py)
+    "reader_pool_workers": 16, // worker PROCESSES for the isolated reader-pool benchmark
     "read_window_s": 300,      // FOREGROUND read size (what you request at once), e.g. 5 min
     "prefetch_chunk_s": 60,    // PREFETCH granularity each worker fetches ahead, e.g. 1 min
-    "prefetch_ahead_chunks": 8 // how many prefetch chunks to keep scheduled ahead of reading
+    "prefetch_ahead_chunks": 2 // how many prefetch chunks to keep scheduled ahead of reading
   },
 
   // --- crossover analysis only ---
@@ -158,21 +181,24 @@ BENCHMARK_CONFIG=/path/to/my_config.json ./run_benchmarks.sh benchmark
 }
 ```
 
-### Read window vs. prefetch chunk (two independent knobs)
+### ReaderProcessPool micro-benchmark knobs (isolated prototype only)
 
-These are deliberately separate:
+These four keys drive **only** `test_reader_pool.py`, which times the
+`ReaderProcessPool` directly (not the wired-in server). They are the pool's own
+foreground-read-size vs. prefetch-chunk-size knobs — deliberately separate, and
+they mirror the concepts the server now exposes as first-class config:
 
-| Knob | Meaning | Maps to (real server) |
-|------|---------|-----------------------|
+| Knob | Meaning | Server equivalent |
+|------|---------|-------------------|
 | `read_window_s` | size of each **foreground** read (e.g. 5 min) | the client's `get_signal_range(t1, t2)` request size (per call) |
 | `prefetch_chunk_s` | **prefetch** granularity — how big each background fetch is (e.g. 1 min) | the tile size, `TILE_DURATION_S` |
-| `prefetch_ahead_chunks` | how many prefetch chunks to keep scheduled ahead of reading | the prefetch horizon, `N_PREFETCH` |
-| `reader_pool_workers` | worker **processes** doing the prefetch decode | (planned) process pool size |
-| `max_workers` | gRPC server **threads** / thread prefetch pool | `MAX_WORKERS` |
+| `prefetch_ahead_chunks` | how many prefetch chunks to keep scheduled ahead of reading | the prefetch horizon, `PREFETCH_AHEAD_WINDOWS` |
+| `reader_pool_workers` | worker **processes** doing the decode | `READER_PROCESSES` / `PREFETCH_PROCESSES` |
 
-So "read in 5-min chunks with 8 workers prefetching 1-min chunks" is:
-`read_window_s=300`, `prefetch_chunk_s=60`, `reader_pool_workers=8` (and
-`prefetch_ahead_chunks` sets how far ahead). Exercised by
+For the **wired-in server** benchmarks (use cases A/B/C) the equivalents are set
+directly under `workload` (`prefetch_ahead_windows`, `tile_duration_s`,
+`reader_processes`, ...) and passed through by `server_kwargs()`; the four keys
+above are for the isolated pool measurement:
 `pytest -m benchmark tests/test_reader_pool.py::test_reader_pool_streaming_prefetch -s`.
 
 ### Switching to the full "real" benchmark
@@ -263,17 +289,28 @@ writes an artifact to `crossover.output_dir` (default `benchmark_results/`):
 - `crossover_curve.md` — a table you can drop into the README
 
 The **crossover point** is the first intensity where gRPC+prefetch ≤ native. With
-few channels, decode is so cheap there is nothing to hide and native local wins at
-every intensity (crossover = `None`); the server+prefetch advantage appears at
-high channel counts, where per-window decode is large enough that overlapping it
-with processing outweighs the gRPC transport cost.
+few channels, decode is so cheap there is nothing to parallelize/hide and native
+local can win at every intensity (crossover = `None`); the server+prefetch
+advantage appears at high channel counts, where per-window decode is large enough
+that decoding it **in parallel across processes** and overlapping it with
+processing outweighs the gRPC transport cost.
 
-> ⚠️ Each level is a **single cold pass**, so the curve is noisy — a lone
-> `1.0x`-ish level can flip `crossover` to a small number that isn't reproducible.
-> Read the whole column, not just the reported point: on the current in-process,
-> GIL-bound server, prefetch does not clearly overtake native at 64 ch. That is
-> expected (use case C favours native until real parallel decode lands); the
-> server's decisive win is use case B, in the benchmark report, not here.
+With the process pool now the default, a representative 64 ch / 256 Hz / 21600 s
+run (Apple M3 Max, 14 CPUs) crosses over immediately — gRPC+prefetch beats native
+at **every** intensity:
+
+| repeats | native (s) | gRPC+prefetch (s) | speedup |
+| ---: | ---: | ---: | ---: |
+| 1  | 2.01 | 1.51 | **1.34x** |
+| 2  | 2.28 | 1.78 | 1.28x |
+| 4  | 2.49 | 1.94 | 1.28x |
+| 8  | 3.00 | 2.44 | 1.23x |
+| 16 | 4.18 | 3.52 | 1.19x |
+
+(Crossover = 1.) This is the use-case-C result the redesign targeted: real
+parallel decode, hidden behind compute, tips a whole single pass in the server's
+favour. Because each level is still a single cold pass, read the whole column
+rather than any one row.
 
 ## Interpreting results
 
@@ -292,10 +329,11 @@ Map every number back to a use case (A/B/C above):
 - **gRPC no-prefetch** pays transport per window with no overlap and no reuse —
   expected to be the slowest; this is the classic "server slower than MefReader"
   case, kept as a reference point.
-- MEF3 decode is **GIL-bound** in `pymef`, so the current server's prefetch does
-  not decode in parallel — it only hides latency behind client work and reuses
-  the cache. (Real parallel decode needs multiple processes; a planned change,
-  prototyped in `test_reader_pool.py`.)
+- MEF3 decode is **GIL-bound** in `pymef`, so thread prefetch cannot decode in
+  parallel. The server therefore decodes in **worker processes** by default
+  (`ReaderProcessPool`); this is what lets prefetch overlap *parallel* decode with
+  compute and is what tips use case C. `USE_PROCESS_POOL=0` reverts to the
+  in-process thread path (hides latency + reuses cache only, no parallel decode).
 - Results are **machine-specific** (CPU count, disk, OS page cache). Record the
   host when publishing numbers; `record_benchmark_setup` already attaches CPU
   count and the full setup to each result's `extra_info`.

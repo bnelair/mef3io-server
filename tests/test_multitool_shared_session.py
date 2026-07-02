@@ -32,7 +32,7 @@ from mef_tools import MefReader
 
 from brainmaze_mef3_server.client import Mef3Client
 
-from .benchmark_data import get_workload
+from .benchmark_data import get_workload, server_kwargs
 from .conftest import record_benchmark_setup
 from .test_automated_processing import run_detector
 
@@ -185,11 +185,7 @@ def test_multitool_grpc_shared_cache(
     """N tools share ONE server: an overlapping region is decoded once, not N times."""
     wl, num_tools, _, seg_s, overlap, per_tool, n_distinct = _plan(benchmark_config)
 
-    port = grpc_server_factory(
-        n_prefetch=wl["n_prefetch"],
-        cache_capacity_multiplier=wl["cache_capacity_multiplier"],
-        max_workers=wl["max_workers"],
-    )
+    port = grpc_server_factory(**server_kwargs(wl))
     # One client per tool -- each tool is an independent consumer of the server.
     clients = [Mef3Client(f"localhost:{port}") for _ in range(num_tools)]
     clients[0].open_file(benchmark_mef3_file)
@@ -202,9 +198,9 @@ def test_multitool_grpc_shared_cache(
             access="multi-tool gRPC SHARED tile cache",
             server="gRPC (shared cache)",
             num_tools=num_tools, overlap=overlap, n_distinct=n_distinct,
-            n_prefetch=wl["n_prefetch"],
-            cache_capacity_multiplier=wl["cache_capacity_multiplier"],
-            prefetch_workers=wl["max_workers"], grpc_threads=wl["max_workers"])
+            use_process_pool=wl["use_process_pool"],
+            prefetch_ahead_windows=wl["prefetch_ahead_windows"],
+            grpc_threads=wl["grpc_threads"])
 
     timings = []
     benchmark.pedantic(

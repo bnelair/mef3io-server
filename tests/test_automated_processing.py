@@ -25,7 +25,7 @@ from mef_tools import MefReader
 
 from brainmaze_mef3_server.client import Mef3Client
 
-from .benchmark_data import get_workload
+from .benchmark_data import get_workload, server_kwargs
 from .conftest import record_benchmark_setup
 
 ROUNDS = 1
@@ -155,11 +155,7 @@ def test_processing_grpc_with_prefetch(
 ):
     """Detector reading via gRPC WITH prefetch (decode overlaps compute)."""
     workload = get_workload(benchmark_config)
-    port = grpc_server_factory(
-        n_prefetch=workload["n_prefetch"],
-        cache_capacity_multiplier=workload["cache_capacity_multiplier"],
-        max_workers=workload["max_workers"],
-    )
+    port = grpc_server_factory(**server_kwargs(workload))
     client = Mef3Client(f"localhost:{port}")
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
@@ -171,10 +167,10 @@ def test_processing_grpc_with_prefetch(
         benchmark, benchmark_config, workload,
         access="detector gRPC WITH prefetch (get_signal_range)",
         server="gRPC",
-        n_prefetch=workload["n_prefetch"],
-        cache_capacity_multiplier=workload["cache_capacity_multiplier"],
-        prefetch_workers=workload["max_workers"],
-        grpc_threads=workload["max_workers"],
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=workload["prefetch_ahead_windows"],
+        prefetch_behind_windows=workload["prefetch_behind_windows"],
+        grpc_threads=workload["grpc_threads"],
     )
     benchmark.pedantic(
         grpc_processing,
@@ -192,7 +188,10 @@ def test_processing_grpc_no_prefetch(
 ):
     """Detector reading via gRPC WITHOUT prefetch (transport, no overlap)."""
     workload = get_workload(benchmark_config)
-    port = grpc_server_factory(n_prefetch=0, cache_capacity_multiplier=0, max_workers=1)
+    # Genuinely disable look-ahead/behind on the range path (n_prefetch no longer
+    # governs it); parallel decode of the foreground read stays on.
+    port = grpc_server_factory(**server_kwargs(
+        workload, prefetch_ahead_windows=0, prefetch_behind_windows=0, max_workers=1))
     client = Mef3Client(f"localhost:{port}")
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
@@ -204,9 +203,9 @@ def test_processing_grpc_no_prefetch(
         benchmark, benchmark_config, workload,
         access="detector gRPC WITHOUT prefetch (get_signal_range)",
         server="gRPC",
-        n_prefetch=0,
-        cache_capacity_multiplier=0,
-        prefetch_workers=1,
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=0,
+        prefetch_behind_windows=0,
         grpc_threads=1,
     )
     benchmark.pedantic(

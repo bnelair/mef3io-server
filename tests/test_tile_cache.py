@@ -1,4 +1,6 @@
 """Unit tests for the byte-budgeted, key-based TileCache."""
+import time
+
 import numpy as np
 import pytest
 
@@ -91,6 +93,36 @@ def test_global_budget_shared_across_files():
     assert not c.contains(("A", "ch0", 0))
     assert c.contains(("B", "ch0", 0))
     assert c.contains(("C", "ch0", 0))
+
+
+def test_ttl_evicts_idle_tiles():
+    # A deterministic clock is injected via evict_expired(now=...), no sleeping.
+    c = TileCache(max_bytes=10_000, ttl_seconds=100)
+    c.put(("f", "ch0", 0), _tile(4))
+    t0 = time.monotonic()
+    # Within TTL -> retained.
+    assert c.evict_expired(now=t0 + 50) == 0
+    assert c.contains(("f", "ch0", 0))
+    # Past TTL -> evicted and bytes reclaimed.
+    assert c.evict_expired(now=t0 + 150) == 1
+    assert not c.contains(("f", "ch0", 0))
+    assert c.current_bytes == 0
+
+
+def test_ttl_access_resets_idle_timer():
+    c = TileCache(max_bytes=10_000, ttl_seconds=100)
+    c.put(("f", "ch0", 0), _tile(4))
+    assert c.get(("f", "ch0", 0)) is not None  # access refreshes last-access time
+    t_access = time.monotonic()
+    assert c.evict_expired(now=t_access + 50) == 0
+    assert c.contains(("f", "ch0", 0))
+
+
+def test_ttl_none_disables_expiry():
+    c = TileCache(max_bytes=10_000, ttl_seconds=None)
+    c.put(("f", "ch0", 0), _tile(4))
+    assert c.evict_expired(now=1e18) == 0  # never expires
+    assert c.contains(("f", "ch0", 0))
 
 
 def test_clear_and_invalid_budget():

@@ -98,15 +98,39 @@ python -m brainmaze_mef3_server.server
 
 #### Configuration via Environment Variables
 - `PORT`: gRPC server port (default: 50051)
-- `N_PREFETCH`: Number of chunks/tiles to prefetch (default: 3)
-- `CACHE_CAPACITY_MULTIPLIER`: Extra (window) cache slots (default: 3)
-- `MAX_WORKERS`: Prefetch thread pool size (default: 4)
 - `TILE_DURATION_S`: Tile length in seconds for timestamp-based access (default: 60)
 - `TILE_CACHE_MB`: Global tile-cache budget in MB, shared across all open files (default: 512)
+- `CACHE_TTL_S`: Discard tiles not accessed within this many seconds; a finished
+  session (e.g. a detector that moved on) is freed even before the byte budget is
+  hit. `0` disables idle expiry (default: 1800 = 30 min)
 
-Example:
+Parallel decode (pymef MEF3 decode is GIL-bound, so real parallelism needs
+separate worker processes — see below):
+- `USE_PROCESS_POOL`: Decode cold reads / prefetch in worker processes (default: `true`)
+- `READER_PROCESSES`: Total decode worker processes (default: auto = `cpu_count - 1`)
+- `PREFETCH_PROCESSES`: How many of those form the background prefetch lane; the
+  rest (always ≥ 1) are the reserved foreground lane so prefetch can never starve
+  an interactive read (default: auto = half)
+- `MIN_PARALLEL_TILES`: Minimum missing tiles before a cold read fans out to the
+  pool; smaller reads stay in-process, where IPC is not worth it (default: 2)
+
+Prefetch / paging for visualization (look-ahead/behind measured in *windows* of
+the request's own size):
+- `PREFETCH_AHEAD_WINDOWS`: Windows to prefetch after the request (page forward) (default: 1)
+- `PREFETCH_BEHIND_WINDOWS`: Windows to prefetch before the request (page backward) (default: 1)
+
+Deprecated window/segment path only:
+- `N_PREFETCH`: Neighboring segments to prefetch (default: 3)
+- `CACHE_CAPACITY_MULTIPLIER`: Extra (window) cache slots (default: 3)
+- `MAX_WORKERS`: Thread-pool size for the in-process prefetch fallback (default: 4)
+
+Example — interactive viewing (page both ways), and a detector single-pass
+(stream forward, no look-behind, deeper look-ahead):
 ```sh
-PORT=50052 N_PREFETCH=2 python -m brainmaze_mef3_server.server
+# viewer
+PORT=50052 PREFETCH_AHEAD_WINDOWS=1 PREFETCH_BEHIND_WINDOWS=1 python -m brainmaze_mef3_server.server
+# detector / automated single pass
+PREFETCH_AHEAD_WINDOWS=3 PREFETCH_BEHIND_WINDOWS=0 python -m brainmaze_mef3_server.server
 ```
 
 ### As a Docker Container

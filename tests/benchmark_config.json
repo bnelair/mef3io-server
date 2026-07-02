@@ -1,5 +1,5 @@
 {
-  "channels": 64,
+  "channels": 128,
   "sampling_rate_hz": 256,
   "duration_s": 21600,
   "precision": 2,
@@ -10,13 +10,25 @@
   "workload": {
     "num_chunks": 20,
     "segment_size_s": 60,
-    "n_prefetch": 5,
-    "cache_capacity_multiplier": 30,
-    "max_workers": 20,
     "processing_mode": "compute",
     "processing_cost_s": 0.5,
     "compute_repeats": 1,
-    "reader_pool_workers": 8,
+
+    "num_tools": 4,
+    "tool_overlap": 1.0,
+
+    "grpc_threads": 20,
+    "use_process_pool": true,
+    "reader_processes": null,
+    "prefetch_processes": null,
+    "min_parallel_tiles": 2,
+    "prefetch_ahead_windows": 1,
+    "prefetch_behind_windows": 1,
+    "tile_duration_s": 60,
+    "tile_cache_mb": 512,
+    "cache_ttl_s": 1800,
+
+    "reader_pool_workers": 16,
     "read_window_s": 300,
     "prefetch_chunk_s": 60,
     "prefetch_ahead_chunks": 2

@@ -5,6 +5,7 @@ import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
 from brainmaze_mef3_server.server.cache import LRUCache
 from brainmaze_mef3_server.server.tile_cache import TileCache, CACHE_DTYPE
+from brainmaze_mef3_server.server.reader_pool import ReaderProcessPool
 from mef_tools import MefReader
 from brainmaze_mef3_server.server.log_manager import get_logger
 import os
@@ -42,17 +43,40 @@ class FileManager:
     """
 
     def __init__(self, n_prefetch=2, cache_capacity_multiplier=5, max_workers=4,
-                 tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024):
+                 tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
+                 use_process_pool=True, reader_processes=None, prefetch_processes=None,
+                 min_parallel_tiles=2, prefetch_ahead_windows=1,
+                 prefetch_behind_windows=1, cache_ttl_s=1800):
         """
         Initialize the FileManager.
 
         Args:
-            n_prefetch (int): Number of chunks/tiles to prefetch before and after each request.
+            n_prefetch (int): Number of chunks to prefetch before and after each
+                request on the deprecated window/segment path.
             cache_capacity_multiplier (int): Additional (window) cache capacity beyond the prefetch window.
-            max_workers (int): Maximum number of background threads for prefetching.
+            max_workers (int): Maximum number of background threads for the
+                thread-based prefetch fallback (used when the process pool is off).
             tile_duration_s (float): Time-tile length in seconds for the timestamp-based
                 (``read_signal_range``) access path.
-            tile_cache_bytes (int): Per-file byte budget for the tile cache (float32 tiles).
+            tile_cache_bytes (int): Global byte budget for the tile cache (float32 tiles).
+            use_process_pool (bool): Decode cold reads / prefetch in worker
+                processes for real parallel MEF3 decode (pymef is GIL-bound). When
+                ``False``, falls back to the in-process thread path.
+            reader_processes (int or None): Total decode worker processes. ``None``
+                auto-selects ``cpu_count - 1``.
+            prefetch_processes (int or None): Of the total, how many form the
+                background prefetch lane. ``None`` uses half. The remainder
+                (always >= 1) is the reserved foreground lane so background
+                prefetch can never starve an interactive read.
+            min_parallel_tiles (int): Only fan a cold read out to the process pool
+                when at least this many tiles are missing; smaller reads stay
+                in-process (IPC is not worth it).
+            prefetch_ahead_windows (int): How many full windows *ahead* of the
+                requested window to prefetch (paging forward).
+            prefetch_behind_windows (int): How many full windows *behind* the
+                requested window to prefetch (paging backward).
+            cache_ttl_s (float or None): Discard tiles not accessed within this many
+                seconds. ``None``/``0`` disables idle expiry.
         """
         self._files = {}
         self._lock = threading.Lock()
@@ -64,11 +88,30 @@ class FileManager:
         # --- Timestamp-based (tile) access configuration ---
         self.tile_duration_s = tile_duration_s
         self.tile_cache_bytes = tile_cache_bytes
+        self.cache_ttl_s = float(cache_ttl_s) if cache_ttl_s and cache_ttl_s > 0 else None
         # A single tile cache shared across all open files, keyed by
         # (file_path, channel, block_index), enforces one global memory ceiling.
-        self._tile_cache = TileCache(max_bytes=tile_cache_bytes)
+        self._tile_cache = TileCache(max_bytes=tile_cache_bytes, ttl_seconds=self.cache_ttl_s)
 
-        # --- NEW: Dedicated thread pool for background data loading ---
+        # --- Process-pool decode configuration (two disjoint lanes) ---
+        self.use_process_pool = bool(use_process_pool)
+        total = int(reader_processes) if reader_processes else max(1, (os.cpu_count() or 2) - 1)
+        if prefetch_processes is not None:
+            prefetch_w = max(1, int(prefetch_processes))
+        else:
+            prefetch_w = max(1, total // 2)
+        self._foreground_workers = max(1, total - prefetch_w)
+        self._prefetch_workers = prefetch_w
+        self.min_parallel_tiles = max(1, int(min_parallel_tiles))
+        self.prefetch_ahead_windows = max(0, int(prefetch_ahead_windows))
+        self.prefetch_behind_windows = max(0, int(prefetch_behind_windows))
+        # Lazily created so constructing a FileManager never spawns processes; a
+        # small read below min_parallel_tiles also never needs the pool.
+        self._fg_pool = None
+        self._bg_pool = None
+        self._pool_lock = threading.Lock()
+
+        # --- Thread pool: prefetch fallback (process pool off) + window path ---
         self._prefetch_executor = futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix='cache_prefetch'
         )
@@ -76,6 +119,50 @@ class FileManager:
         self._in_progress = {}
         # Track in-progress tile prefetches: {file_path: set((channel, block_index))}
         self._tile_in_progress = {}
+
+        # --- Background TTL sweeper: frees idle tiles even with no traffic ---
+        self._stop_sweeper = threading.Event()
+        self._sweeper = None
+        if self.cache_ttl_s is not None:
+            interval = max(1.0, self.cache_ttl_s / 10.0)
+            self._sweeper = threading.Thread(
+                target=self._sweeper_loop, args=(interval,),
+                name='tile_cache_sweeper', daemon=True,
+            )
+            self._sweeper.start()
+
+    # ------------------------------------------------------------------
+    # Process-pool lanes + background TTL sweeper
+    # ------------------------------------------------------------------
+    def _get_fg_pool(self):
+        """Foreground decode lane (reserved for interactive/cold reads)."""
+        if not self.use_process_pool:
+            return None
+        if self._fg_pool is None:
+            with self._pool_lock:
+                if self._fg_pool is None:
+                    self._fg_pool = ReaderProcessPool(max_workers=self._foreground_workers)
+        return self._fg_pool
+
+    def _get_bg_pool(self):
+        """Background decode lane (prefetch only; never blocks foreground)."""
+        if not self.use_process_pool:
+            return None
+        if self._bg_pool is None:
+            with self._pool_lock:
+                if self._bg_pool is None:
+                    self._bg_pool = ReaderProcessPool(max_workers=self._prefetch_workers)
+        return self._bg_pool
+
+    def _sweeper_loop(self, interval):
+        """Periodically discard tiles that have gone idle past the TTL."""
+        while not self._stop_sweeper.wait(interval):
+            try:
+                n = self._tile_cache.evict_expired()
+                if n:
+                    logger.debug(f"TTL sweep evicted {n} idle tiles")
+            except Exception as e:  # noqa: BLE001 - sweeper must never die
+                logger.error(f"Tile cache sweeper error: {e}")
 
     # --- NEW: Helper method for background loading ---
     def _load_and_cache_chunk(self, file_path, chunk_idx):
@@ -163,6 +250,9 @@ class FileManager:
                 rdr = MefReader(actual_path)
                 self._files[file_path] = {
                     'reader': rdr,
+                    # Docker-mapped on-disk path; handed to worker processes so
+                    # they can open their own MefReader for parallel decode.
+                    'actual_path': actual_path,
                     'chunks': [],
                     'chunk_duration_s': 0,
                     # --- NEW: Initialize a dedicated LRUCache for this file ---
@@ -427,6 +517,7 @@ class FileManager:
                 raise ValueError(f"File not open: {file_path}")
             state = self._files[file_path]
             rdr = state['reader']
+            actual_path = state['actual_path']
             cache = self._tile_cache
             all_channels = list(rdr.channels)
             if not channels:
@@ -447,14 +538,25 @@ class FileManager:
         if n <= 0:
             raise ValueError("Requested window is shorter than one sample")
 
-        rows = []
-        prefetch_targets = []
+        # Per-channel block span covering the requested window.
+        spans = {}
         for ch in channels:
             _, cs, S = metas[ch]
             i1 = int(round((start_uutc - cs) * fs / 1e6))
-            i2 = i1 + n
             b1 = i1 // S
-            b2 = (i2 - 1) // S
+            b2 = (i1 + n - 1) // S
+            spans[ch] = (b1, b2, i1)
+
+        # Decode+cache the missing tiles, fanning out across the foreground
+        # process pool when there is enough work to amortize the IPC.
+        self._ensure_tiles_cached(file_path, actual_path, metas, spans)
+
+        # Assemble sample-exact rows from cached tiles. Any residual miss (below
+        # the parallel threshold, or a negative pre-start block) is read in-process.
+        rows = []
+        for ch in channels:
+            b1, b2, i1 = spans[ch]
+            _, cs, S = metas[ch]
             parts = []
             for b in range(b1, b2 + 1):
                 tile = cache.get((file_path, ch, b)) if b >= 0 else None
@@ -469,17 +571,13 @@ class FileManager:
             if row.shape[0] < n:  # window runs past end-of-file
                 row = np.concatenate([row, np.full(n - row.shape[0], np.nan, dtype=CACHE_DTYPE)])
             rows.append(row.astype(CACHE_DTYPE, copy=False))
-            if prefetch:
-                for k in range(1, self.n_prefetch + 1):
-                    prefetch_targets.append((ch, b1 - k))
-                    prefetch_targets.append((ch, b2 + k))
 
         data = np.vstack(rows) if len(rows) > 1 else rows[0][np.newaxis, :]
 
-        if prefetch and prefetch_targets:
-            for ch, b in prefetch_targets:
-                if b >= 0:
-                    self._prefetch_executor.submit(self._prefetch_tile, file_path, ch, b)
+        if prefetch:
+            self._schedule_window_prefetch(
+                file_path, actual_path, channels, metas, start_uutc, end_uutc, fs
+            )
 
         return {
             'array': data,
@@ -488,6 +586,122 @@ class FileManager:
             'start_uutc': int(start_uutc),
             'end_uutc': int(end_uutc),
         }
+
+    def _ensure_tiles_cached(self, file_path, actual_path, metas, spans):
+        """Decode and cache tiles missing for ``spans`` in parallel (one task/channel).
+
+        No-op when the process pool is disabled or when too few tiles are missing
+        to be worth the IPC -- in both cases the assembly loop reads them in-process.
+        """
+        if not self.use_process_pool:
+            return
+        cache = self._tile_cache
+        jobs = {}  # channel -> list of missing (>=0) block indices
+        total_missing = 0
+        for ch, (b1, b2, _) in spans.items():
+            missing = [b for b in range(max(0, b1), b2 + 1)
+                       if not cache.contains((file_path, ch, b))]
+            if missing:
+                jobs[ch] = missing
+                total_missing += len(missing)
+        if not jobs or total_missing < self.min_parallel_tiles:
+            return
+        pool = self._get_fg_pool()
+        if pool is None:
+            return
+        futs = []
+        for ch, blocks in jobs.items():
+            fs, cs, S = metas[ch]
+            futs.append((ch, pool.submit_read_tiles(actual_path, ch, blocks, fs, cs, S)))
+        for ch, fut in futs:
+            try:
+                tiles = fut.result()
+            except Exception as e:  # noqa: BLE001 - fall back to in-process assembly
+                logger.error(f"Parallel tile read failed for {ch} in {file_path}: {e}")
+                continue
+            for b, tile in tiles.items():
+                cache.put((file_path, ch, b), tile)
+
+    def _schedule_window_prefetch(self, file_path, actual_path, channels, metas,
+                                  start_uutc, end_uutc, fs):
+        """Prefetch tiles covering N windows ahead and M windows behind.
+
+        With window span ``W = end - start``, look-ahead covers
+        ``[end, end + ahead*W)`` and look-behind ``[start - behind*W, start)`` for
+        each requested channel -- warming the next/previous 'page' so paging
+        forward and backward is a cache hit. Runs on the background lane.
+        """
+        W = end_uutc - start_uutc
+        if W <= 0:
+            return
+        ranges = []
+        if self.prefetch_ahead_windows > 0:
+            ranges.append((end_uutc, end_uutc + self.prefetch_ahead_windows * W))
+        if self.prefetch_behind_windows > 0:
+            ranges.append((start_uutc - self.prefetch_behind_windows * W, start_uutc))
+        if not ranges:
+            return
+        for ch in channels:
+            _, cs, S = metas[ch]
+            blocks = set()
+            for ta, tb in ranges:
+                if tb <= ta:
+                    continue
+                ia = int(round((ta - cs) * fs / 1e6))
+                ib = int(round((tb - cs) * fs / 1e6))
+                ba = ia // S
+                bb = (ib - 1) // S
+                for b in range(max(0, ba), bb + 1):
+                    blocks.add(b)
+            for b in sorted(blocks):
+                self._schedule_prefetch_tile(file_path, actual_path, ch, b, metas[ch])
+
+    def _schedule_prefetch_tile(self, file_path, actual_path, channel, block_index, meta):
+        """Dispatch a single-tile prefetch to the background lane (or thread fallback)."""
+        if block_index < 0:
+            return
+        pool = self._get_bg_pool()
+        if pool is None:
+            # Thread fallback: in-process read overlapping client think-time.
+            self._prefetch_executor.submit(self._prefetch_tile, file_path, channel, block_index)
+            return
+        cache_key = (file_path, channel, block_index)
+        with self._lock:
+            if file_path not in self._files:
+                return
+            if self._tile_cache.contains(cache_key):
+                return
+            in_progress = self._tile_in_progress.setdefault(file_path, set())
+            key = (channel, block_index)
+            if key in in_progress:
+                return
+            in_progress.add(key)
+        fs, cs, S = meta
+        fut = pool.submit_read_tiles(actual_path, channel, [block_index], fs, cs, S)
+        fut.add_done_callback(
+            lambda f, fp=file_path, ch=channel, b=block_index: self._on_prefetch_done(f, fp, ch, b)
+        )
+
+    def _on_prefetch_done(self, fut, file_path, channel, block_index):
+        """Insert a prefetched tile into the cache and clear its in-flight marker."""
+        try:
+            tiles = fut.result()
+        except Exception as e:  # noqa: BLE001 - a failed prefetch is non-fatal
+            logger.error(f"Error prefetching tile ({channel}, {block_index}) for {file_path}: {e}")
+            tiles = None
+        try:
+            if tiles:
+                with self._lock:
+                    still_open = file_path in self._files
+                if still_open:
+                    for b, tile in tiles.items():
+                        self._tile_cache.put((file_path, channel, b), tile)
+                    logger.debug(f"Tile PREFETCHED: ({channel}, {block_index}) for {file_path}")
+        finally:
+            with self._lock:
+                s = self._tile_in_progress.get(file_path)
+                if s is not None:
+                    s.discard((channel, block_index))
 
     def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc):
         """Yield a ``[start_uutc, end_uutc)`` read as ~2.5MB streamed SignalChunks.
@@ -529,11 +743,15 @@ class FileManager:
                 error_message="",
             )
 
-    # --- NEW: Method to gracefully shut down the thread pool ---
+    # --- Graceful shutdown of all background resources ---
     def shutdown(self):
-        """Shuts down the background prefetch thread pool executor."""
-        logger.info("Shutting down prefetch executor...")
+        """Shuts down the prefetch thread pool, process pools, and TTL sweeper."""
+        logger.info("Shutting down FileManager background resources...")
+        self._stop_sweeper.set()
         self._prefetch_executor.shutdown(wait=False)
+        for pool in (self._fg_pool, self._bg_pool):
+            if pool is not None:
+                pool.shutdown()
 
     # ... (rest of the FileManager methods: _get_file_info_unsafe, close_file, etc. remain the same) ...
     # Make sure to also add a shutdown method.

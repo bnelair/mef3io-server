@@ -29,7 +29,7 @@ from mef_tools import MefReader
 
 from brainmaze_mef3_server.client import Mef3Client
 
-from .benchmark_data import get_workload, get_crossover, _resolve_data_dir
+from .benchmark_data import get_workload, get_crossover, server_kwargs, _resolve_data_dir
 from .test_automated_processing import native_processing, grpc_processing
 
 
@@ -42,13 +42,8 @@ def _time_native(mefd_path, workload):
     return time.perf_counter() - t0
 
 
-def _time_grpc(mefd_path, workload, grpc_server_factory, *, n_prefetch,
-               cache_capacity_multiplier, max_workers):
-    port = grpc_server_factory(
-        n_prefetch=n_prefetch,
-        cache_capacity_multiplier=cache_capacity_multiplier,
-        max_workers=max_workers,
-    )
+def _time_grpc(mefd_path, workload, grpc_server_factory, **server_overrides):
+    port = grpc_server_factory(**server_kwargs(workload, **server_overrides))
     client = Mef3Client(f"localhost:{port}")
     client.open_file(mefd_path)
     fi = client.get_file_info(mefd_path)
@@ -123,17 +118,12 @@ def test_crossover_curve(benchmark_mef3_file, benchmark_config, grpc_server_fact
         wl["compute_repeats"] = repeats
 
         native_s = _time_native(benchmark_mef3_file, wl)
-        prefetch_s = _time_grpc(
-            benchmark_mef3_file, wl, grpc_server_factory,
-            n_prefetch=workload["n_prefetch"],
-            cache_capacity_multiplier=workload["cache_capacity_multiplier"],
-            max_workers=workload["max_workers"],
-        )
+        prefetch_s = _time_grpc(benchmark_mef3_file, wl, grpc_server_factory)
         no_prefetch_s = None
         if include_np:
             no_prefetch_s = _time_grpc(
                 benchmark_mef3_file, wl, grpc_server_factory,
-                n_prefetch=0, cache_capacity_multiplier=0, max_workers=1,
+                prefetch_ahead_windows=0, prefetch_behind_windows=0, max_workers=1,
             )
 
         row = {

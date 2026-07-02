@@ -112,6 +112,50 @@ def test_close_file_purges_its_tiles_from_shared_cache(mef3_file):  # noqa: F811
     fm.shutdown()
 
 
+def test_range_matches_direct_thread_fallback(mef3_file):  # noqa: F811
+    """With the process pool disabled, the in-process path must still be exact."""
+    fm = FileManager(use_process_pool=False, tile_duration_s=10,
+                     tile_cache_bytes=64 * 1024 * 1024)
+    try:
+        fm.open_file(mef3_file)
+        rdr = MefReader(mef3_file)
+        channels = list(rdr.channels)[:4]
+        cs = int(rdr.get_property('start_time', channels[0]))
+        t1, t2 = cs + 3_000_000, cs + 47_000_000
+        got = fm.read_signal_range(mef3_file, channels, t1, t2)['array']
+        ref = _direct(rdr, channels, t1, t2)
+        m = min(got.shape[1], ref.shape[1])
+        np.testing.assert_allclose(got[:, :m], ref[:, :m], atol=1e-4, equal_nan=True)
+    finally:
+        fm.shutdown()
+
+
+def test_window_prefetch_targets_ahead_and_behind(fm_and_file):
+    """The window-level prefetch schedules exactly the next/previous 'page' tiles."""
+    fm, fp = fm_and_file
+    rdr = MefReader(fp)
+    ch = list(rdr.channels)[0]
+    with fm._lock:
+        state = fm._files[fp]
+        meta = fm._get_tile_meta_unsafe(state, ch)
+        actual_path = state['actual_path']
+    fs, cs, S = meta
+    fm.prefetch_ahead_windows = 1
+    fm.prefetch_behind_windows = 1
+
+    # 10 s window aligned to tile 10 (fixture tile_duration_s=10).
+    t1, t2 = cs + 100_000_000, cs + 110_000_000
+
+    recorded = []
+    fm._schedule_prefetch_tile = lambda fpath, apath, c, b, m: recorded.append(b)
+    fm._schedule_window_prefetch(fp, actual_path, [ch], {ch: meta}, t1, t2, fs)
+
+    blocks = set(recorded)
+    assert 9 in blocks    # behind window [90 s, 100 s)
+    assert 11 in blocks   # ahead window  [110 s, 120 s)
+    assert 10 not in blocks  # never re-prefetch the window's own tile
+
+
 def test_read_past_end_is_nan_padded(fm_and_file):
     fm, fp = fm_and_file
     rdr = MefReader(fp)

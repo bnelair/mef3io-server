@@ -58,13 +58,13 @@ MEF3_BENCHMARK_DURATION_S = 2 * 60 * 60
 def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
                            active_channels, fs, precision, duration_s,
                            num_chunks, segment_size_s, rounds, sleep_seconds=None,
-                           server="none (direct MefReader)", n_prefetch=None,
-                           cache_capacity_multiplier=None, prefetch_workers=None,
-                           grpc_threads=None):
+                           server="none (direct MefReader)", **server_cfg):
     """Attach the file/dataset and server setup of a benchmark and print it.
 
     The info is stored in ``benchmark.extra_info`` (saved by ``--benchmark-save`` /
     ``--benchmark-json``) and printed so it is visible when running with ``-s``.
+    Any extra keyword (``server_cfg``) describing the server tuning under test is
+    recorded verbatim; ``None`` values are dropped.
     """
     info = {
         "access_pattern": access,
@@ -87,14 +87,7 @@ def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
         # --- Host ---
         "host_cpu_count": os.cpu_count(),
     }
-    if n_prefetch is not None:
-        info.update({
-            "n_prefetch": n_prefetch,
-            "cache_capacity_multiplier": cache_capacity_multiplier,
-            "cache_capacity": (n_prefetch * 2) + cache_capacity_multiplier,
-            "prefetch_workers": prefetch_workers,
-            "grpc_server_threads": grpc_threads,
-        })
+    info.update({k: v for k, v in server_cfg.items() if v is not None})
     benchmark.extra_info.update(info)
     print(f"\n[benchmark setup] {access}")
     for k, v in info.items():
@@ -183,10 +176,15 @@ def launch_server_process():
 
 
 # --- Server and Client Fixtures ---------------------------------------
-def create_grpc_server(n_prefetch, cache_capacity_multiplier, max_workers):
-    """Factory function to create a gRPC server with specific FileManager settings."""
+def create_grpc_server(max_workers=4, **fm_kwargs):
+    """Create a gRPC server, forwarding ``fm_kwargs`` to the FileManager.
+
+    ``max_workers`` sizes both the gRPC servicer thread pool and the FileManager's
+    thread-prefetch fallback; any other FileManager knob (``use_process_pool``,
+    ``prefetch_ahead_windows``, ``tile_cache_bytes``, ...) is passed through.
+    """
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    file_manager = FileManager(n_prefetch, cache_capacity_multiplier, max_workers)
+    file_manager = FileManager(max_workers=max_workers, **fm_kwargs)
     servicer = gRPCMef3Server(file_manager)
     pb2_grpc.add_gRPCMef3ServerServicer_to_server(servicer, server)
     return server
@@ -202,13 +200,13 @@ def grpc_server_factory():
     # Start port allocation from a base number
     next_port = 50060
 
-    def _server_starter(n_prefetch, cache_capacity_multiplier, max_workers):
+    def _server_starter(max_workers=4, **fm_kwargs):
         nonlocal next_port
         port = next_port
         # Increment port number to ensure each server in a test run gets a unique port
         next_port += 1
 
-        server = create_grpc_server(n_prefetch, cache_capacity_multiplier, max_workers)
+        server = create_grpc_server(max_workers=max_workers, **fm_kwargs)
         server.add_insecure_port(f"localhost:{port}")
 
         server_thread = threading.Thread(target=server.start, daemon=True)
@@ -216,7 +214,8 @@ def grpc_server_factory():
         time.sleep(0.1)
 
         servers.append(server)
-        print(f"\nStarted test gRPC server on port {port} with n_prefetch={n_prefetch}")
+        print(f"\nStarted test gRPC server on port {port} with "
+              f"max_workers={max_workers}, {fm_kwargs}")
         return port
 
     yield _server_starter

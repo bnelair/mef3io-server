@@ -9,6 +9,7 @@ import threading
 from mef_tools import MefReader
 from brainmaze_mef3_server.client import Mef3Client
 
+from .benchmark_data import get_workload, server_kwargs
 from .conftest import record_benchmark_setup
 
 import time
@@ -18,10 +19,7 @@ import time
 BENCHMARK_NUM_CHUNKS = 20  # All benchmarks use 20 chunks for fair comparison
 BENCHMARK_SEGMENT_SIZE_S = 60  # 60 second segments
 ROUNDS = 1
-SLEEP_SECONDS = 0.3 # simulating processing delay
-N_PREFETCH = 1
-MAX_WORKERS = 20
-CACHE_CAPACITY_MULTIPLIER = 30
+SLEEP_SECONDS = 0.3 # simulating think-time between windows (use case A)
 
 
 # --- Helper functions for access patterns ---
@@ -97,7 +95,8 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, b
     Sequential forward access via gRPC WITH prefetching.
     20 chunks, 60s each.
     """
-    port = grpc_server_factory(n_prefetch=N_PREFETCH, cache_capacity_multiplier=CACHE_CAPACITY_MULTIPLIER, max_workers=MAX_WORKERS)
+    workload = get_workload(benchmark_config)
+    port = grpc_server_factory(**server_kwargs(workload))
     client = Mef3Client(f"localhost:{port}")
 
     # Setup
@@ -121,10 +120,10 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, b
         rounds=ROUNDS,
         sleep_seconds=SLEEP_SECONDS,
         server="gRPC",
-        n_prefetch=N_PREFETCH,
-        cache_capacity_multiplier=CACHE_CAPACITY_MULTIPLIER,
-        prefetch_workers=MAX_WORKERS,
-        grpc_threads=MAX_WORKERS,  # benchmark server uses ThreadPoolExecutor(max_workers)
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=workload["prefetch_ahead_windows"],
+        prefetch_behind_windows=workload["prefetch_behind_windows"],
+        grpc_threads=workload["grpc_threads"],
     )
 
     # Benchmark
@@ -141,10 +140,14 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, ben
     Sequential forward access via gRPC WITHOUT prefetching.
     Uses BENCHMARK_NUM_CHUNKS chunks of BENCHMARK_SEGMENT_SIZE_S seconds each.
     """
-    port = grpc_server_factory(n_prefetch=0, cache_capacity_multiplier=0, max_workers=1)
+    workload = get_workload(benchmark_config)
+    # Genuinely disable look-ahead/behind on the range path; parallel decode of
+    # the foreground read stays on (that is a server property, not "prefetch").
+    port = grpc_server_factory(**server_kwargs(
+        workload, prefetch_ahead_windows=0, prefetch_behind_windows=0, max_workers=1))
     client = Mef3Client(f"localhost:{port}")
 
-    # Setup - use server with n_prefetch=0
+    # Setup - server with window prefetch disabled
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
@@ -165,9 +168,9 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, ben
         rounds=ROUNDS,
         sleep_seconds=SLEEP_SECONDS,
         server="gRPC",
-        n_prefetch=0,
-        cache_capacity_multiplier=0,
-        prefetch_workers=1,
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=0,
+        prefetch_behind_windows=0,
         grpc_threads=1,  # benchmark server uses ThreadPoolExecutor(max_workers)
     )
 

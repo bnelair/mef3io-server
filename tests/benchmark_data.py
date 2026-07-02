@@ -40,23 +40,41 @@ DEFAULT_CONFIG = {
 # content), so they are intentionally NOT part of the dataset identity and never
 # trigger regeneration. They live under the ``workload`` key of the config.
 DEFAULT_WORKLOAD = {
+    # --- access pattern (shared by every scenario) ---
     "num_chunks": 20,            # number of sequential windows processed
     "segment_size_s": 60,        # window length in seconds
-    "n_prefetch": 1,             # server prefetch depth (gRPC scenarios)
-    "cache_capacity_multiplier": 30,
-    "max_workers": 20,           # server prefetch/grpc threads
     "processing_mode": "compute",  # "compute" (real detector work) | "sleep"
     "processing_cost_s": 0.3,    # per-window delay when processing_mode == "sleep"
     "compute_repeats": 1,        # detector intensity when processing_mode == "compute"
     # --- multi-tool shared-session benchmark (use case B) ---
     "num_tools": 4,              # independent tools all processing the SAME session
     "tool_overlap": 1.0,         # fraction [0..1] of each tool's windows shared with the others
-    "reader_pool_workers": 4,    # worker PROCESSES for the multiprocess reader-pool benchmark
-    # --- two independent windows for the streaming reader-pool benchmark ---
+    # --- server under test: passed straight through to the FileManager ---
+    "grpc_threads": 20,          # gRPC servicer threads + thread-prefetch fallback pool (MAX_WORKERS)
+    "use_process_pool": True,    # parallel decode in worker processes (USE_PROCESS_POOL)
+    "reader_processes": None,    # total decode processes; None => auto cpu-1 (READER_PROCESSES)
+    "prefetch_processes": None,  # background prefetch lane size; None => auto half (PREFETCH_PROCESSES)
+    "min_parallel_tiles": 2,     # min missing tiles before fanning out to the pool (MIN_PARALLEL_TILES)
+    "prefetch_ahead_windows": 1, # windows to prefetch ahead / page forward (PREFETCH_AHEAD_WINDOWS)
+    "prefetch_behind_windows": 1,# windows to prefetch behind / page backward (PREFETCH_BEHIND_WINDOWS)
+    "tile_duration_s": 60,       # tile length for the range path (TILE_DURATION_S)
+    "tile_cache_mb": 512,        # global tile-cache byte budget (TILE_CACHE_MB)
+    "cache_ttl_s": 1800,         # discard tiles idle longer than this (CACHE_TTL_S)
+    # --- ReaderProcessPool micro-benchmark ONLY (isolated prototype path;
+    #     test_reader_pool.py measures the pool directly, not the wired server) ---
+    "reader_pool_workers": 4,    # worker PROCESSES for the isolated reader-pool benchmark
     "read_window_s": 300,        # FOREGROUND read size (what you request at once), e.g. 5 min
     "prefetch_chunk_s": 60,      # PREFETCH granularity each worker fetches ahead, e.g. 1 min
     "prefetch_ahead_chunks": 8,  # how many prefetch chunks to keep scheduled ahead of reading
 }
+
+# Workload keys that map 1:1 onto FileManager constructor kwargs. `grpc_threads`
+# and `tile_cache_mb` are translated separately by :func:`server_kwargs`.
+_SERVER_PASSTHROUGH_KEYS = (
+    "use_process_pool", "reader_processes", "prefetch_processes",
+    "min_parallel_tiles", "prefetch_ahead_windows", "prefetch_behind_windows",
+    "tile_duration_s", "cache_ttl_s",
+)
 
 
 def get_workload(config):
@@ -71,6 +89,21 @@ def get_workload(config):
     wl = dict(DEFAULT_WORKLOAD)
     wl.update(config.get("workload", {}))
     return wl
+
+
+def server_kwargs(workload, **overrides):
+    """FileManager kwargs for the benchmark server, from a workload (+ overrides).
+
+    Translates the workload's server-tuning keys into the FileManager constructor
+    signature (``grpc_threads`` -> ``max_workers``, ``tile_cache_mb`` ->
+    ``tile_cache_bytes``). ``overrides`` win, e.g.
+    ``server_kwargs(wl, prefetch_ahead_windows=0)`` for a no-prefetch scenario.
+    """
+    kw = {k: workload[k] for k in _SERVER_PASSTHROUGH_KEYS if k in workload}
+    kw["max_workers"] = workload.get("grpc_threads", 4)
+    kw["tile_cache_bytes"] = int(workload.get("tile_cache_mb", 512) * 1024 * 1024)
+    kw.update(overrides)
+    return kw
 
 
 # Crossover-curve analysis: sweep the per-window processing intensity to find
