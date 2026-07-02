@@ -26,8 +26,6 @@ def main():
 
     # Read configuration from environment variables (with defaults)
     port = int(os.environ.get("PORT", 50051))
-    n_prefetch = int(os.environ.get("N_PREFETCH", 3))
-    cache_capacity_multiplier = int(os.environ.get("CACHE_CAPACITY_MULTIPLIER", 3))
     max_workers = int(os.environ.get("MAX_WORKERS", 4))
     tile_duration_s = float(os.environ.get("TILE_DURATION_S", 60))
     tile_cache_bytes = int(float(os.environ.get("TILE_CACHE_MB", 512)) * 1024 * 1024)
@@ -41,7 +39,6 @@ def main():
     cache_ttl_s = float(os.environ.get("CACHE_TTL_S", 1800))
 
     print(f"Starting gRPC MEF3 server on port {port} with FileManager config: "
-          f"n_prefetch={n_prefetch}, cache_capacity_multiplier={cache_capacity_multiplier}, "
           f"max_workers={max_workers}, tile_duration_s={tile_duration_s}, "
           f"tile_cache_mb={tile_cache_bytes // (1024 * 1024)}, "
           f"use_process_pool={use_process_pool}, reader_processes={reader_processes}, "
@@ -51,8 +48,6 @@ def main():
 
     handler = gRPCMef3ServerHandler(
         port=port,
-        n_prefetch=n_prefetch,
-        cache_capacity_multiplier=cache_capacity_multiplier,
         max_workers=max_workers,
         tile_duration_s=tile_duration_s,
         tile_cache_bytes=tile_cache_bytes,

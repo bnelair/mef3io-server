@@ -14,7 +14,7 @@ def _direct(rdr, channels, t1, t2):
 
 @pytest.fixture()
 def fm_and_file(mef3_file):  # noqa: F811
-    fm = FileManager(n_prefetch=2, tile_duration_s=10, tile_cache_bytes=64 * 1024 * 1024)
+    fm = FileManager(tile_duration_s=10, tile_cache_bytes=64 * 1024 * 1024)
     fm.open_file(mef3_file)
     yield fm, mef3_file
     fm.shutdown()

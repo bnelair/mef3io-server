@@ -161,7 +161,6 @@ def test_processing_grpc_with_prefetch(
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi["channel_names"]
     start_uutc = fi["start_uutc"]
-    client.set_active_channels(benchmark_mef3_file, channels)
 
     _record(
         benchmark, benchmark_config, workload,
@@ -188,8 +187,8 @@ def test_processing_grpc_no_prefetch(
 ):
     """Detector reading via gRPC WITHOUT prefetch (transport, no overlap)."""
     workload = get_workload(benchmark_config)
-    # Genuinely disable look-ahead/behind on the range path (n_prefetch no longer
-    # governs it); parallel decode of the foreground read stays on.
+    # Disable look-ahead/behind window prefetch; parallel decode of the
+    # foreground read stays on (that is a server property, not "prefetch").
     port = grpc_server_factory(**server_kwargs(
         workload, prefetch_ahead_windows=0, prefetch_behind_windows=0, max_workers=1))
     client = Mef3Client(f"localhost:{port}")
@@ -197,7 +196,6 @@ def test_processing_grpc_no_prefetch(
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi["channel_names"]
     start_uutc = fi["start_uutc"]
-    client.set_active_channels(benchmark_mef3_file, channels)
 
     _record(
         benchmark, benchmark_config, workload,

@@ -1,6 +1,5 @@
 import pytest
 import numpy as np
-from unittest.mock import patch
 import concurrent.futures
 import os
 import time
@@ -31,116 +30,69 @@ def test_open_and_close_file(mef3_file):
     assert mef3_file not in fm.list_open_files()
 
 
-def test_set_signal_segment_size_and_get_info(mef3_file):
+def test_file_info_exposes_per_channel_metadata(mef3_file):
+    """File info must expose channels, per-channel fs and per-channel start/end."""
     fm = FileManager()
     fm.open_file(mef3_file)
-    resp = fm.set_signal_segment_size(mef3_file, 0.1)
-    assert resp.number_of_segments > 0
-    assert resp.file_path == mef3_file
-    assert resp.error_message == ""
-
     info = fm.get_file_info(mef3_file)
     assert info.file_opened
-    assert info.file_path == mef3_file
     assert info.number_of_channels > 0
+    nch = info.number_of_channels
+    # Parallel per-channel arrays.
+    assert len(info.channel_names) == nch
+    assert len(info.channel_sampling_rates) == nch
+    assert len(info.channel_start_uutc) == nch
+    assert len(info.channel_end_uutc) == nch
+    # Global span is the min/max over channels.
+    assert info.start_uutc == min(info.channel_start_uutc)
+    assert info.end_uutc == max(info.channel_end_uutc)
+    assert info.duration_s == pytest.approx((info.end_uutc - info.start_uutc) / 1e6)
+    # Cross-check against the reader directly.
+    rdr = MefReader(mef3_file)
+    assert list(info.channel_names) == list(rdr.channels)
+    fm.shutdown()
 
 
-def test_get_signal_segment_and_cache(mef3_file):
-    fm = FileManager(n_prefetch=1)
+def test_channel_subset_and_order_preserved(mef3_file):
+    """Requesting a subset of channels in arbitrary order returns exactly that."""
+    fm = FileManager(tile_duration_s=10)
     fm.open_file(mef3_file)
-    fm.set_signal_segment_size(mef3_file, 0.1)
-    state = fm._files[mef3_file]
+    rdr = fm._files[mef3_file]['reader']
+    all_channels = list(rdr.channels)
+    selected = [all_channels[3], all_channels[1], all_channels[5]]
+    cs = int(min(rdr.get_property('start_time')))
 
-    # First access: should be a cache miss
-    chunks = list(fm.get_signal_segment(mef3_file, 0))
-    assert len(chunks) > 0
-    # Second access: should be a cache hit
-    chunks2 = list(fm.get_signal_segment(mef3_file, 0))
-    assert len(chunks2) > 0
+    res = fm.read_signal_range(mef3_file, selected, cs, cs + 5_000_000)
+    assert res['channel_names'] == selected
+    assert res['array'].shape[0] == len(selected)
+
+    ref = np.asarray(rdr.get_data(selected, cs, cs + 5_000_000), dtype=np.float32)
+    m = min(res['array'].shape[1], ref.shape[1])
+    np.testing.assert_allclose(res['array'][:, :m], ref[:, :m], atol=1e-4, equal_nan=True)
+    fm.shutdown()
 
 
-def test_set_signal_segment_size_resets_cache_state(mef3_file):
-    fm = FileManager(n_prefetch=0)
-    fm.open_file(mef3_file)
-    fm.set_signal_segment_size(mef3_file, 0.1)
-
-    first_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
-    first_shape = tuple(first_chunk.shape)
-    assert 0 in fm._files[mef3_file]['cache']
-
-    fm.set_signal_segment_size(mef3_file, 0.2)
-
-    assert 0 not in fm._files[mef3_file]['cache']
-    assert not fm._in_progress.get(mef3_file)
-
-    second_chunk = list(fm.get_signal_segment(mef3_file, 0))[0]
-    assert tuple(second_chunk.shape) != first_shape
-
-def test_set_and_get_active_channels_and_signal(mef3_file):
+def test_read_signal_range_errors(mef3_file):
     fm = FileManager()
     fm.open_file(mef3_file)
-    all_channels = fm._files[mef3_file]['reader'].channels
-    # Select a subset and reorder
-    selected = [all_channels[3], all_channels[1], all_channels[5]]
-    # Set active channels
-    resp_set = fm.set_active_channels(mef3_file, selected)
-    assert resp_set.active_channels == selected
-    # Get active channels
-    resp_get = fm.get_active_channels(mef3_file)
-    assert resp_get.active_channels == selected
-    # Set segment size and get a chunk
-    fm.set_signal_segment_size(mef3_file, 0.1)
-    chunks = list(fm.get_signal_segment(mef3_file, 0))
-    assert len(chunks) > 0
-    # Check the returned signal shape matches the selected channels
-    arr = np.frombuffer(chunks[0].array_bytes, dtype=chunks[0].dtype)
-    arr = arr.reshape(chunks[0].shape)
-    assert arr.shape[0] == len(selected)
-    # Check the data matches the reference for those channels and order
     rdr = fm._files[mef3_file]['reader']
-    chunk_info = fm._files[mef3_file]['chunks'][0]
-    ref = rdr.get_data(selected, chunk_info['start'], chunk_info['end'])
-    np.testing.assert_array_equal(arr, ref)
-
-
-def test_prefetching_neighbors(mef3_file):
-    fm = FileManager(n_prefetch=1)
-    fm.open_file(mef3_file)
-    # Set segment size which will create valid chunks based on the actual file
-    fm.set_signal_segment_size(mef3_file, 0.1)
-    state = fm._files[mef3_file]
-    
-    # Ensure we have at least 2 chunks to test prefetching
-    assert len(state['chunks']) >= 2, "Need at least 2 chunks for this test"
-    
-    # Access chunk 1, which should trigger prefetch of chunk 0
-    list(fm.get_signal_segment(mef3_file, 1))
-    # Give some time for prefetch thread to run
-    import time; time.sleep(0.2)
-    # Now chunk 0 should be in cache (prefetched as a neighbor)
-    assert 0 in state['cache'], "Chunk 0 should have been prefetched when accessing chunk 1"
+    cs = int(min(rdr.get_property('start_time')))
+    # Unknown channel.
+    with pytest.raises(ValueError):
+        fm.read_signal_range(mef3_file, ["no_such_channel"], cs, cs + 1_000_000)
+    # Empty window.
+    with pytest.raises(ValueError):
+        fm.read_signal_range(mef3_file, None, cs, cs)
+    # File not open.
+    with pytest.raises(ValueError):
+        fm.read_signal_range("not_open.mefd", None, cs, cs + 1_000_000)
+    fm.shutdown()
 
 
 def test_error_handling_on_open():
     fm = FileManager()
     resp = fm.open_file("badfile.mef")
     assert not resp.file_opened
-
-
-def test_get_signal_segment_invalid(mef3_file):
-    fm = FileManager()
-    fm.open_file(mef3_file)
-    # No chunks set yet
-    result = list(fm.get_signal_segment(mef3_file, 0))
-    assert len(result) == 1
-    assert result[0].error_message != ""
-
-    # Set chunks, but invalid index
-    state = fm._files[mef3_file]
-    state['chunks'] = [{'start': 0, 'end': 100}]
-    result2 = list(fm.get_signal_segment(mef3_file, 2))
-    assert len(result2) == 1
-    assert result2[0].error_message != ""
 
 
 def test_shutdown_thread_pool():
@@ -151,8 +103,6 @@ def test_shutdown_thread_pool():
         time.sleep(.1)
 
 
-
-
 SEGMENT_SIZE_S = 60
 NUM_WINDOWS = 5
 
@@ -161,8 +111,8 @@ def access_pattern(file_manager, file_path, channels, start_uutc):
     """Read NUM_WINDOWS sequential windows via the tile-cache path.
 
     Exercises ``FileManager.read_signal_range`` (the timestamp-based tile cache +
-    background tile prefetch), not the deprecated window API. Prefetch's benefit
-    shows on windows 1..N-1, whose tiles the previous window scheduled ahead.
+    background tile prefetch). Prefetch's benefit shows on windows 1..N-1, whose
+    tiles the previous window scheduled ahead.
     """
     seg_us = int(SEGMENT_SIZE_S * 1e6)
     for i in range(NUM_WINDOWS):
@@ -182,9 +132,7 @@ def _micro_setup(fm, mef3_file):
 @pytest.mark.benchmark
 def test_with_prefetch_real_file(benchmark, mef3_file):
     """Benchmark the tile-cache access pattern WITH prefetching on a REAL file."""
-    # This should beat no-prefetch when there are many channels to decode; if it
-    # is much slower, the fixture is probably using only a few channels.
-    fm = FileManager(n_prefetch=10, cache_capacity_multiplier=10, max_workers=12)  # Prefetching is enabled
+    fm = FileManager(prefetch_ahead_windows=1, prefetch_behind_windows=1, max_workers=12)
     channels, start_uutc = _micro_setup(fm, mef3_file)
     record_benchmark_setup(
         benchmark,
@@ -195,7 +143,7 @@ def test_with_prefetch_real_file(benchmark, mef3_file):
         fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
         num_chunks=NUM_WINDOWS, segment_size_s=SEGMENT_SIZE_S, rounds="auto",
         server="FileManager (in-process, no gRPC)",
-        n_prefetch=10, cache_capacity_multiplier=10, prefetch_workers=12,
+        prefetch_ahead_windows=1, prefetch_behind_windows=1,
     )
     benchmark(access_pattern, fm, mef3_file, channels, start_uutc)
     fm.shutdown()
@@ -204,7 +152,7 @@ def test_with_prefetch_real_file(benchmark, mef3_file):
 @pytest.mark.benchmark
 def test_no_prefetch_real_file(benchmark, mef3_file):
     """Benchmark the tile-cache access pattern WITHOUT prefetching on a REAL file."""
-    fm = FileManager(n_prefetch=0, cache_capacity_multiplier=0)  # Prefetching is turned OFF
+    fm = FileManager(prefetch_ahead_windows=0, prefetch_behind_windows=0)
     channels, start_uutc = _micro_setup(fm, mef3_file)
     record_benchmark_setup(
         benchmark,
@@ -215,46 +163,47 @@ def test_no_prefetch_real_file(benchmark, mef3_file):
         fs=256, precision=3, duration_s=5 * 60,  # matches the mef3_file fixture
         num_chunks=NUM_WINDOWS, segment_size_s=SEGMENT_SIZE_S, rounds="auto",
         server="FileManager (in-process, no gRPC)",
-        n_prefetch=0, cache_capacity_multiplier=0, prefetch_workers=4,
+        prefetch_ahead_windows=0, prefetch_behind_windows=0,
     )
     benchmark(access_pattern, fm, mef3_file, channels, start_uutc)
     fm.shutdown()
 
 
 def test_integrity_multithreaded_read_real(mef3_file):
-    """Test that reading the whole file by 5 independent clients yields correct and identical data using the real MEF3 reader."""
-    fm = FileManager()
-    file_path = mef3_file
-    fm.open_file(file_path)
-    chunk_seconds = 60
-    fm.set_signal_segment_size(file_path, chunk_seconds)
-    state = fm._files[file_path]
-    num_chunks = len(state['chunks'])
+    """5 concurrent clients reading the whole file window-by-window must all get
+    identical, reference-correct data (shared tile cache, channels+time API)."""
+    fm = FileManager(tile_duration_s=10)
+    fm.open_file(mef3_file)
+    rdr = fm._files[mef3_file]['reader']
+    channels = list(rdr.channels)
+    start = int(min(rdr.get_property('start_time')))
+    end = int(max(rdr.get_property('end_time')))
+    win_us = int(60 * 1e6)
 
-    def read_all_chunks():
-        all_data = []
-        for i in range(num_chunks):
-            chunks = list(fm.get_signal_segment(file_path, i))
-            for chunk in chunks:
-                arr = np.frombuffer(chunk.array_bytes, dtype=chunk.dtype)
-                arr = arr.reshape(chunk.shape)
-                all_data.append(arr)
-        return np.concatenate(all_data, axis=1)
+    def read_all_windows():
+        parts = []
+        s = start
+        while s < end:
+            e = min(s + win_us, end)
+            res = fm.read_signal_range(mef3_file, channels, s, e)
+            parts.append(res['array'])
+            s = e
+        return np.concatenate(parts, axis=1)
 
     # Run 5 clients in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        results = list(executor.map(lambda _: read_all_chunks(), range(5)))
+        results = list(executor.map(lambda _: read_all_windows(), range(5)))
 
     # All results should be identical
     for arr in results[1:]:
         np.testing.assert_array_equal(arr, results[0])
 
-    # The data should match the reference (all data concatenated)
-    rdr = MefReader(file_path)
-    start = rdr.get_property('start_time')[0]
-    end = rdr.get_property('end_time')[0]
-    data_reference = rdr.get_data(rdr.channels, start, end)
-    np.testing.assert_array_equal(results[0], data_reference)
+    # The data should match the reference read (float32, <=1 sample rounding)
+    ref = np.asarray(rdr.get_data(channels, start, end), dtype=np.float32)
+    m = min(results[0].shape[1], ref.shape[1])
+    np.testing.assert_allclose(results[0][:, :m], ref[:, :m], atol=1e-4, equal_nan=True)
+    fm.shutdown()
+
 
 def test_open_nonexistent_file_returns_not_opened(tmp_path):
     fm = FileManager()

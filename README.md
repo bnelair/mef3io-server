@@ -1,11 +1,12 @@
 # brainmaze-mef3-server
 
-A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files, with LRU caching and background prefetching. Designed for scalable neurophysiology data streaming and analysis.
+A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files. Every data call is oriented purely in **channels and time**: open a file, read its metadata, then request any channels over any `[start_uutc, end_uutc)` window. Backed by a byte-budgeted per-channel tile cache, parallel decode across worker processes, and configurable window prefetch. Designed for scalable neurophysiology data streaming and analysis.
 
 ## Features
-- gRPC API for remote MEF3 file access
-- Thread-safe LRU cache for signal chunks
-- Asynchronous prefetching for low-latency streaming
+- gRPC API for remote MEF3 file access, oriented purely in **channels and time**
+- Shared, byte-budgeted per-channel **tile cache** with an idle TTL
+- **Parallel MEF3 decode** across worker processes (pymef decode is GIL-bound)
+- Configurable **window look-ahead/behind prefetch** for smooth paging
 - Configurable via environment variables or Docker
 - Ready for deployment in Docker and CI/CD pipelines
 
@@ -118,11 +119,8 @@ Prefetch / paging for visualization (look-ahead/behind measured in *windows* of
 the request's own size):
 - `PREFETCH_AHEAD_WINDOWS`: Windows to prefetch after the request (page forward) (default: 1)
 - `PREFETCH_BEHIND_WINDOWS`: Windows to prefetch before the request (page backward) (default: 1)
-
-Deprecated window/segment path only:
-- `N_PREFETCH`: Neighboring segments to prefetch (default: 3)
-- `CACHE_CAPACITY_MULTIPLIER`: Extra (window) cache slots (default: 3)
-- `MAX_WORKERS`: Thread-pool size for the in-process prefetch fallback (default: 4)
+- `MAX_WORKERS`: Thread-pool size for the in-process prefetch fallback used when
+  `USE_PROCESS_POOL=0` (default: 4)
 
 Example — interactive viewing (page both ways), and a detector single-pass
 (stream forward, no look-behind, deeper look-ahead):
@@ -137,7 +135,7 @@ PREFETCH_AHEAD_WINDOWS=3 PREFETCH_BEHIND_WINDOWS=0 python -m brainmaze_mef3_serv
 The `-v /:/host_root:ro` mount is required so the server can reach files on the host
 (see [Accessing MEF3 files from the container](#accessing-mef3-files-from-the-container)):
 ```sh
-docker run -e PORT=50051 -e N_PREFETCH=2 -p 50051:50051 \
+docker run -e PORT=50051 -e TILE_CACHE_MB=1024 -p 50051:50051 \
   -v /:/host_root:ro \
   ghcr.io/bnelair/brainmaze-mef3-server:latest
 ```
@@ -153,8 +151,8 @@ from brainmaze_mef3_server.server.file_manager import FileManager
 import grpc
 from concurrent import futures
 
-# Configure file manager (optional arguments: n_prefetch, cache_capacity_multiplier, max_workers)
-file_manager = FileManager(n_prefetch=3, cache_capacity_multiplier=3, max_workers=4)
+# Configure the file manager (all arguments optional; see FileManager docstring)
+file_manager = FileManager(tile_cache_bytes=512 * 1024 * 1024, prefetch_ahead_windows=1)
 
 # Create the gRPC server and add the MEF3 service
 server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
@@ -178,18 +176,22 @@ from brainmaze_mef3_server.client import Mef3Client
 
 client = Mef3Client("localhost:50052")
 
-# Open a file
+# Open a file and inspect its metadata
 info = client.open_file("/path/to/file.mefd")
-print("Opened file:", info)
+print("Channels:", info["channel_names"])
+print("Per-channel fs:", info["channel_sampling_rates"])
+print("Per-channel start/end:", info["channel_start_uutc"], info["channel_end_uutc"])
+print("Recording span:", info["start_uutc"], info["end_uutc"], info["duration_s"])
 
-# --- Recommended: timestamp-based access -----------------------------------
+# --- Channels + time: the only data access model ---------------------------
 # Read any channels over any [start_uutc, end_uutc) window (microseconds, uUTC).
-# No need to pre-set a segment grid; the server serves from a per-channel tile
-# cache (reading only what is missing) and prefetches neighboring tiles.
+# The server serves from a per-channel tile cache (reading only what is missing),
+# decodes missing tiles in parallel across processes, and prefetches neighboring
+# windows for smooth paging.
 start_uutc = info["start_uutc"]
 res = client.get_signal_range(
     "/path/to/file.mefd",
-    channels=["Ch1", "Ch2"],          # or None for all active channels
+    channels=["Ch1", "Ch2"],          # or None for all channels
     start_uutc=start_uutc,
     end_uutc=start_uutc + 10_000_000,  # +10 s
 )
@@ -204,22 +206,22 @@ client.close_file("/path/to/file.mefd")
 client.shutdown()
 ```
 
-> **Deprecated: window-based access.** The older segment/window API
-> (`set_signal_segment_size` + `get_signal_segment(chunk_idx)`) still works but is
-> deprecated (it emits a `DeprecationWarning`) in favor of `get_signal_range`,
-> which lets you read any channels over any timestamp range without fixing a
-> segment grid first. Prefer `get_signal_range` for new code.
-
 See the [API section](#api) and the Python docstrings for more details on each method.
 
 ## API
 The server exposes a gRPC API. See `brainmaze_mef3_server/protobufs/gRPCMef3Server.proto` for service and message definitions.
 
+Every data access is oriented in **channels and time** — there is no segment grid
+and no server-side channel selection; each request is self-contained.
+
 Key RPCs / client methods:
 - **`GetSignalRange`** / `client.get_signal_range(file_path, channels, start_uutc, end_uutc)` —
-  recommended timestamp-based access; streams the requested window as `float32`.
-- `OpenFile`, `CloseFile`, `FileInfo`, `ListOpenFiles`, `SetActiveChannels` / `GetActiveChannels`.
-- _Deprecated:_ `SetSignalSegmentSize`, `GetSignalSegment`, `GetNumberOfSegments` (window-based).
+  read any channels over any `[start_uutc, end_uutc)` window; streams `float32`.
+  `channels=None` means all channels.
+- **`FileInfo`** / `client.get_file_info(file_path)` — metadata: `channel_names`,
+  `channel_sampling_rates`, `channel_start_uutc`, `channel_end_uutc` (parallel
+  per-channel arrays) plus the global `start_uutc`/`end_uutc`/`duration_s`.
+- `OpenFile`, `CloseFile`, `ListOpenFiles`.
 
 ## Testing with Large Data
 For testing with real-life large MEF3 files, use the `demo/run_big_data.py` script:
@@ -233,11 +235,10 @@ python demo/run_big_data.py /path/to/large_file.mefd localhost:50051
 ```
 
 This script performs comprehensive tests including:
-- Opening large files
-- Setting and resetting segment sizes
-- Querying segment counts
-- Sequential segment retrieval
-- Channel filtering
+- Opening large files and reading per-channel metadata
+- Reading channels over time windows of various sizes
+- Sequential window retrieval (prefetch) and cache-hit re-reads
+- Channel-subset selection
 - Cache behavior validation
 
 Note: This test may take a long time with very large files and is intended for manual integration testing rather than CI/CD pipelines.
@@ -249,8 +250,7 @@ The server provides comprehensive logging for troubleshooting:
 - Log level can be configured via `app_config.json` (default: INFO)
 - Logs include:
   - File open/close operations
-  - Segment size changes
-  - Cache hits/misses
+  - Cache hits/misses and TTL eviction
   - Prefetch operations
   - Error handling and stack traces
   - Docker environment detection
@@ -301,8 +301,8 @@ pytest -m benchmark --benchmark-histogram            # write histogram SVGs
 
 - **File / dataset:** file name, total channels in the file, channels actually used under
   test, sampling rate, precision, and duration.
-- **Server config:** prefetch depth (`n_prefetch`), cache capacity, prefetch worker threads,
-  and gRPC server threads — plus the host's CPU count.
+- **Server config:** whether the process pool is on, window prefetch depth
+  (`prefetch_ahead_windows`), and gRPC server threads — plus the host's CPU count.
 
 This is attached to each result's `extra_info`. To see it printed on the console, add `-s`;
 to capture it to a file for later analysis, write JSON:

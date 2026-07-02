@@ -1,7 +1,4 @@
-"""End-to-end gRPC tests for timestamp-based access (GetSignalRange) and
-backward compatibility of the deprecated window-based path."""
-import warnings
-
+"""End-to-end gRPC tests for timestamp-based access (GetSignalRange)."""
 import numpy as np
 import pytest
 from mef_tools import MefReader
@@ -12,7 +9,7 @@ from .conftest import mef3_file  # noqa: F401 - pytest fixture
 
 @pytest.fixture()
 def client_and_file(mef3_file, grpc_server_factory):  # noqa: F811
-    port = grpc_server_factory(n_prefetch=2, cache_capacity_multiplier=3, max_workers=4)
+    port = grpc_server_factory(max_workers=4)
     client = Mef3Client(f"localhost:{port}")
     client.open_file(mef3_file)
     yield client, mef3_file
@@ -60,21 +57,9 @@ def test_get_signal_range_cache_reuse_second_read_matches(client_and_file):
 
 
 def test_get_signal_range_error_on_unopened_file(grpc_server_factory):
-    port = grpc_server_factory(n_prefetch=1, cache_capacity_multiplier=1, max_workers=2)
+    port = grpc_server_factory(max_workers=2)
     client = Mef3Client(f"localhost:{port}")
     res = client.get_signal_range("/nope/none.mefd", ["a"], 0, 1_000_000)
     assert res['array'] is None
     assert res['error_message']
     client.shutdown()
-
-
-def test_window_path_still_works_but_warns(client_and_file):
-    """Backward compat: the deprecated window API still returns data (with a warning)."""
-    client, fp = client_and_file
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        client.set_signal_segment_size(fp, 60)
-        seg = client.get_signal_segment(fp, 0)
-    assert seg['array'] is not None
-    messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
-    assert any("get_signal_range" in m for m in messages)

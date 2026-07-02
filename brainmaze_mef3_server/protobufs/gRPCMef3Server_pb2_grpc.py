@@ -26,7 +26,11 @@ if _version_not_supported:
 
 
 class gRPCMef3ServerStub:
-    """Missing associated documentation comment in .proto file."""
+    """MEF3 data server: every data call is oriented purely in CHANNELS and TIME.
+    Open a file, inspect its metadata (channels, per-channel sampling rate and
+    per-channel start/end timestamps), then read any channels over any
+    [start_uutc, end_uutc) window via GetSignalRange.
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -49,16 +53,6 @@ class gRPCMef3ServerStub:
                 request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
                 response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
-        self.SetSignalSegmentSize = channel.unary_unary(
-                '/gRPCMef3Server/SetSignalSegmentSize',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
-                _registered_method=True)
-        self.GetSignalSegment = channel.unary_stream(
-                '/gRPCMef3Server/GetSignalSegment',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
-                _registered_method=True)
         self.GetSignalRange = channel.unary_stream(
                 '/gRPCMef3Server/GetSignalRange',
                 request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.SerializeToString,
@@ -69,25 +63,14 @@ class gRPCMef3ServerStub:
                 request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
                 response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
                 _registered_method=True)
-        self.SetActiveChannels = channel.unary_unary(
-                '/gRPCMef3Server/SetActiveChannels',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
-                _registered_method=True)
-        self.GetActiveChannels = channel.unary_unary(
-                '/gRPCMef3Server/GetActiveChannels',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
-                _registered_method=True)
-        self.GetNumberOfSegments = channel.unary_unary(
-                '/gRPCMef3Server/GetNumberOfSegments',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.FromString,
-                _registered_method=True)
 
 
 class gRPCMef3ServerServicer:
-    """Missing associated documentation comment in .proto file."""
+    """MEF3 data server: every data call is oriented purely in CHANNELS and TIME.
+    Open a file, inspect its metadata (channels, per-channel sampling rate and
+    per-channel start/end timestamps), then read any channels over any
+    [start_uutc, end_uutc) window via GetSignalRange.
+    """
 
     def OpenFile(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -107,18 +90,6 @@ class gRPCMef3ServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SetSignalSegmentSize(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetSignalSegment(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def GetSignalRange(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -126,24 +97,6 @@ class gRPCMef3ServerServicer:
         raise NotImplementedError('Method not implemented!')
 
     def ListOpenFiles(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def SetActiveChannels(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetActiveChannels(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def GetNumberOfSegments(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -167,16 +120,6 @@ def add_gRPCMef3ServerServicer_to_server(servicer, server):
                     request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
                     response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
-            'SetSignalSegmentSize': grpc.unary_unary_rpc_method_handler(
-                    servicer.SetSignalSegmentSize,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.SerializeToString,
-            ),
-            'GetSignalSegment': grpc.unary_stream_rpc_method_handler(
-                    servicer.GetSignalSegment,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.SerializeToString,
-            ),
             'GetSignalRange': grpc.unary_stream_rpc_method_handler(
                     servicer.GetSignalRange,
                     request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.FromString,
@@ -187,21 +130,6 @@ def add_gRPCMef3ServerServicer_to_server(servicer, server):
                     request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
                     response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
             ),
-            'SetActiveChannels': grpc.unary_unary_rpc_method_handler(
-                    servicer.SetActiveChannels,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.SerializeToString,
-            ),
-            'GetActiveChannels': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetActiveChannels,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.SerializeToString,
-            ),
-            'GetNumberOfSegments': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetNumberOfSegments,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.SerializeToString,
-            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'gRPCMef3Server', rpc_method_handlers)
@@ -211,7 +139,11 @@ def add_gRPCMef3ServerServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class gRPCMef3Server:
-    """Missing associated documentation comment in .proto file."""
+    """MEF3 data server: every data call is oriented purely in CHANNELS and TIME.
+    Open a file, inspect its metadata (channels, per-channel sampling rate and
+    per-channel start/end timestamps), then read any channels over any
+    [start_uutc, end_uutc) window via GetSignalRange.
+    """
 
     @staticmethod
     def OpenFile(request,
@@ -295,60 +227,6 @@ class gRPCMef3Server:
             _registered_method=True)
 
     @staticmethod
-    def SetSignalSegmentSize(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/gRPCMef3Server/SetSignalSegmentSize',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetSignalSegmentResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetSignalSegment(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_stream(
-            request,
-            target,
-            '/gRPCMef3Server/GetSignalSegment',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunkRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def GetSignalRange(request,
             target,
             options=(),
@@ -392,87 +270,6 @@ class gRPCMef3Server:
             '/gRPCMef3Server/ListOpenFiles',
             brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
             brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def SetActiveChannels(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/gRPCMef3Server/SetActiveChannels',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SetActiveChannelsResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetActiveChannels(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/gRPCMef3Server/GetActiveChannels',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetActiveChannelsResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def GetNumberOfSegments(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/gRPCMef3Server/GetNumberOfSegments',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.GetNumberOfSegmentsResponse.FromString,
             options,
             channel_credentials,
             insecure,

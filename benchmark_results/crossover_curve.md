@@ -1,13 +1,13 @@
 # Crossover curve: native-local vs gRPC+prefetch
 
-- Dataset: 64 ch, 256 Hz, 21600 s
+- Dataset: 128 ch, 256 Hz, 21600 s
 - Workload: 20 x 60 s windows, mode=compute, host CPUs=14
 - Crossover (first repeats where prefetch <= native): **1**
 
 | repeats | native (s) | gRPC+prefetch (s) | speedup vs native | gRPC no-prefetch (s) |
 | ---: | ---: | ---: | ---: | ---: |
-| 1 | 2.011 | 1.506 | 1.34x | 1.584 |
-| 2 | 2.281 | 1.783 | 1.28x | 1.766 |
-| 4 | 2.485 | 1.940 | 1.28x | 2.035 |
-| 8 | 3.002 | 2.436 | 1.23x | 3.015 |
-| 16 | 4.182 | 3.517 | 1.19x | 3.862 |
+| 1 | 3.984 | 2.138 | 1.86x | 2.065 |
+| 2 | 4.000 | 2.867 | 1.40x | 2.176 |
+| 4 | 5.002 | 4.739 | 1.06x | 2.540 |
+| 8 | 4.937 | 4.334 | 1.14x | 3.320 |
+| 16 | 6.179 | 4.287 | 1.44x | 4.330 |

@@ -71,29 +71,6 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 error_message=str(e)
             )
 
-    def SetSignalSegmentSize(self, request, context):
-        logger.info(f"Received SetSignalSegmentSize for: {request.file_path}")
-        try:
-            return self.manager.set_signal_segment_size(request.file_path, request.seconds)
-        except Exception as e:
-            logger.error(f"Exception in SetSignalSegmentSize: {e}")
-            return gRPCMef3Server_pb2.SetSignalSegmentResponse(
-                file_path=request.file_path,
-                number_of_segments=0,
-                error_message=str(e)
-            )
-
-    def GetSignalSegment(self, request, context):
-        logger.info(f"Received GetSignalSegment for chunk {request.chunk_idx} from: {request.file_path}")
-        try:
-            yield from self.manager.get_signal_segment(request.file_path, request.chunk_idx)
-        except Exception as e:
-            logger.error(f"Exception in GetSignalSegment: {e}")
-            yield gRPCMef3Server_pb2.SignalChunk(
-                file_path=request.file_path,
-                error_message=str(e)
-            )
-
     def GetSignalRange(self, request, context):
         logger.info(
             f"Received GetSignalRange for [{request.start_uutc}, {request.end_uutc}) "
@@ -122,52 +99,11 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
             logger.error(f"Exception in ListOpenFiles: {e}")
             return gRPCMef3Server_pb2.ListOpenFilesResponse(file_paths=[], error_message=str(e))
 
-    def SetActiveChannels(self, request, context):
-        logger.info(f"Received SetActiveChannels for: {request.file_path}")
-        try:
-            return self.manager.set_active_channels(request.file_path, list(request.channel_names))
-        except Exception as e:
-            logger.error(f"Exception in SetActiveChannels: {e}")
-            return gRPCMef3Server_pb2.SetActiveChannelsResponse(
-                file_path=request.file_path,
-                active_channels=[],
-                error_message=str(e)
-            )
-
-    def GetActiveChannels(self, request, context):
-        logger.info(f"Received GetActiveChannels for: {request.file_path}")
-        try:
-            return self.manager.get_active_channels(request.file_path)
-        except Exception as e:
-            logger.error(f"Exception in GetActiveChannels: {e}")
-            return gRPCMef3Server_pb2.GetActiveChannelsResponse(
-                file_path=request.file_path,
-                active_channels=[],
-                error_message=str(e)
-            )
-    
-    def GetNumberOfSegments(self, request, context):
-        logger.info(f"Received GetNumberOfSegments for: {request.file_path}")
-        try:
-            num_segments = self.manager.get_number_of_segments(request.file_path)
-            return gRPCMef3Server_pb2.GetNumberOfSegmentsResponse(
-                file_path=request.file_path,
-                number_of_segments=num_segments,
-                error_message=""
-            )
-        except Exception as e:
-            logger.error(f"Exception in GetNumberOfSegments: {e}")
-            return gRPCMef3Server_pb2.GetNumberOfSegmentsResponse(
-                file_path=request.file_path,
-                number_of_segments=0,
-                error_message=str(e)
-            )
-
 
 class gRPCMef3ServerHandler:
     """Handler to launch and manage the gRPC MEF3 server lifecycle."""
 
-    def __init__(self, port, n_prefetch=3, cache_capacity_multiplier=3, max_workers=4,
+    def __init__(self, port, max_workers=4,
                  tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
@@ -176,8 +112,6 @@ class gRPCMef3ServerHandler:
 
         Args:
             port (int): Port to listen on.
-            n_prefetch (int): Prefetch depth on the deprecated window/segment path.
-            cache_capacity_multiplier (int): Cache capacity multiplier (window path).
             max_workers (int): Max worker threads for the prefetch thread fallback.
             tile_duration_s (float): Tile length (seconds) for timestamp-based access.
             tile_cache_bytes (int): Global tile cache byte budget.
@@ -193,8 +127,6 @@ class gRPCMef3ServerHandler:
 
         # Pass parameters to FileManager
         self.file_manager = FileManager(
-            n_prefetch=n_prefetch,
-            cache_capacity_multiplier=cache_capacity_multiplier,
             max_workers=max_workers,
             tile_duration_s=tile_duration_s,
             tile_cache_bytes=tile_cache_bytes,

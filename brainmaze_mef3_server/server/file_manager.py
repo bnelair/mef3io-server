@@ -3,7 +3,6 @@ import threading
 import numpy as np
 import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
-from brainmaze_mef3_server.server.cache import LRUCache
 from brainmaze_mef3_server.server.tile_cache import TileCache, CACHE_DTYPE
 from brainmaze_mef3_server.server.reader_pool import ReaderProcessPool
 from mef_tools import MefReader
@@ -31,18 +30,15 @@ class FileManager:
     """
     Manages the state and operations for multiple MEF files in a thread-safe manner.
 
-    This class provides efficient, concurrent access to MEF3 files, including:
-      - File open/close and info management
-      - LRU caching and asynchronous prefetching of signal segments
-      - Chunking of signal data for streaming
-      - Active channel selection and order preservation
-      - Error handling for invalid requests and file states
+    Every data access is oriented purely in **channels and time**: clients read
+    arbitrary channels over arbitrary ``[start_uutc, end_uutc)`` windows via
+    :meth:`read_signal_range`, served from a shared per-channel tile cache with
+    parallel decode in worker processes and configurable window prefetch.
 
     Thread safety is ensured via a lock for all state-changing operations. Each file is managed independently.
-    The cache and prefetching system is designed for high-throughput, low-latency access to large files.
     """
 
-    def __init__(self, n_prefetch=2, cache_capacity_multiplier=5, max_workers=4,
+    def __init__(self, max_workers=4,
                  tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
@@ -51,9 +47,6 @@ class FileManager:
         Initialize the FileManager.
 
         Args:
-            n_prefetch (int): Number of chunks to prefetch before and after each
-                request on the deprecated window/segment path.
-            cache_capacity_multiplier (int): Additional (window) cache capacity beyond the prefetch window.
             max_workers (int): Maximum number of background threads for the
                 thread-based prefetch fallback (used when the process pool is off).
             tile_duration_s (float): Time-tile length in seconds for the timestamp-based
@@ -81,10 +74,6 @@ class FileManager:
         self._files = {}
         self._lock = threading.Lock()
 
-        # --- NEW: Configuration for caching ---
-        self.n_prefetch = n_prefetch  # Number of chunks to prefetch before and after
-        self.cache_capacity = (n_prefetch * 2) + cache_capacity_multiplier
-
         # --- Timestamp-based (tile) access configuration ---
         self.tile_duration_s = tile_duration_s
         self.tile_cache_bytes = tile_cache_bytes
@@ -111,12 +100,10 @@ class FileManager:
         self._bg_pool = None
         self._pool_lock = threading.Lock()
 
-        # --- Thread pool: prefetch fallback (process pool off) + window path ---
+        # --- Thread pool: prefetch fallback when the process pool is off ---
         self._prefetch_executor = futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix='cache_prefetch'
         )
-        # Track in-progress prefetches: {file_path: {chunk_idx: threading.Event}}
-        self._in_progress = {}
         # Track in-progress tile prefetches: {file_path: set((channel, block_index))}
         self._tile_in_progress = {}
 
@@ -164,65 +151,6 @@ class FileManager:
             except Exception as e:  # noqa: BLE001 - sweeper must never die
                 logger.error(f"Tile cache sweeper error: {e}")
 
-    # --- NEW: Helper method for background loading ---
-    def _load_and_cache_chunk(self, file_path, chunk_idx):
-        """Worker function to load a single chunk and put it in the cache.
-
-        Args:
-            file_path (str): Path to the MEF file.
-            chunk_idx (int): Index of the chunk to load and cache.
-        """
-        # Minimize lock duration - only check and mark as in-progress
-        with self._lock:
-            # Check if file is still open and chunk isn't already cached
-            if file_path not in self._files:
-                return
-            
-            state = self._files[file_path]
-            cache = state['cache']
-            
-            # Quick check: already cached or invalid index
-            if chunk_idx in cache:
-                return
-            
-            chunks = state['chunks']
-            if not (chunks and 0 <= chunk_idx < len(chunks)):
-                return
-            
-            # --- In-progress event tracking ---
-            in_progress = self._in_progress.setdefault(file_path, {})
-            if chunk_idx in in_progress:
-                # Already being prefetched
-                return
-            
-            # Mark as in progress
-            event = threading.Event()
-            in_progress[chunk_idx] = event
-            
-            # Get references we need (outside lock, these are safe to use)
-            rdr = state['reader']
-            chunk_info = chunks[chunk_idx]
-
-        # --- Data reading happens outside the main lock ---
-        try:
-            channels = rdr.channels
-            data = rdr.get_data(channels, chunk_info['start'], chunk_info['end'])
-            data = np.array(data)
-
-            # --- Put loaded data into the cache ---
-            with self._lock:
-                if file_path in self._files and self._files[file_path]['cache'] is cache:
-                    cache.put(chunk_idx, data)
-                    logger.debug(f"Cache PREFETCHED: chunk {chunk_idx} for {file_path}")
-        except Exception as e:
-            logger.error(f"Error prefetching chunk {chunk_idx} for {file_path}: {e}")
-        finally:
-            # Signal completion and cleanup
-            with self._lock:
-                event.set()
-                if self._in_progress.get(file_path) is in_progress:
-                    in_progress.pop(chunk_idx, None)
-
     def open_file(self, file_path):
         """Opens a MEF file and initializes its state.
 
@@ -253,12 +181,8 @@ class FileManager:
                     # Docker-mapped on-disk path; handed to worker processes so
                     # they can open their own MefReader for parallel decode.
                     'actual_path': actual_path,
-                    'chunks': [],
-                    'chunk_duration_s': 0,
-                    # --- NEW: Initialize a dedicated LRUCache for this file ---
-                    'cache': LRUCache(capacity=self.cache_capacity),
-                    # --- Timestamp-based access: per-channel tile metadata ---
-                    # (tiles themselves live in the shared self._tile_cache)
+                    # Per-channel tile metadata (tiles themselves live in the
+                    # shared self._tile_cache)
                     'tile_meta': {},  # channel -> (fs, channel_start_uutc, samples_per_tile)
                 }
                 logger.info(f"Opened file: {file_path}")
@@ -270,148 +194,7 @@ class FileManager:
                     error_message=str(e)
                 )
 
-            # Prefetch initial chunks if chunks are already set (e.g., re-opening)
-            state = self._files[file_path]
-            if state['chunks']:
-                num_to_prefetch = min(self.n_prefetch + 1, len(state['chunks']))
-                for idx in range(num_to_prefetch):
-                    self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, idx)
-
             return self._get_file_info_unsafe(file_path)
-
-    def get_signal_segment(self, file_path, chunk_idx):
-        """
-        Yields signal data for a given segment, streaming in chunks of ~2.5MB.
-        Args:
-            file_path (str): Path to the MEF file.
-            chunk_idx (int): Index of the segment to retrieve.
-        Yields:
-            SignalChunk: Protobuf message containing a chunk of signal data.
-        """
-        try:
-            with self._lock:
-                if file_path not in self._files:
-                    yield gRPCMef3Server_pb2.SignalChunk(
-                        file_path=file_path,
-                        error_message=f"File not open: {file_path}"
-                    )
-                    return
-                state = self._files[file_path]
-                rdr = state['reader']
-                chunks = state['chunks']
-                cache = state['cache']
-                in_progress = self._in_progress.setdefault(file_path, {})
-                if not chunks:
-                    yield gRPCMef3Server_pb2.SignalChunk(
-                        file_path=file_path,
-                        error_message=f"No chunks available for file: {file_path}. Set a segment size to init chunks."
-                    )
-                    return
-                active_channels = state.get('active_channels')
-                if active_channels is None:
-                    active_channels = list(rdr.channels)
-            if not (chunks and 0 <= chunk_idx < len(chunks)):
-                yield gRPCMef3Server_pb2.SignalChunk(
-                    file_path=file_path,
-                    error_message=f"Invalid chunk request: {chunk_idx} for {file_path}"
-                )
-                return
-            # --- PREFETCHING: Submit background tasks to load neighbors FIRST (before waiting) ---
-            # This ensures prefetching happens eagerly, even before we need the current chunk
-            # Batch check all neighbors in one lock acquisition to reduce contention
-            with self._lock:
-                for i in range(1, self.n_prefetch + 1):
-                    neighbor_before = chunk_idx - i
-                    neighbor_after = chunk_idx + i
-                    if neighbor_before >= 0 and neighbor_before not in cache and neighbor_before not in in_progress:
-                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, neighbor_before)
-                    if neighbor_after < len(chunks) and neighbor_after not in cache and neighbor_after not in in_progress:
-                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, neighbor_after)
-            
-            data = cache.get(chunk_idx)
-            if data is not None:
-                # --- CACHE HIT ---
-                logger.debug(f"Cache HIT: chunk {chunk_idx} for {file_path}")
-                # Filter data to only active channels if needed
-                if 'active_channels' in state and state['active_channels'] is not None:
-                    all_channels = list(rdr.channels)
-                    channel_indices = [all_channels.index(ch) for ch in active_channels]
-                    data = data[channel_indices, :]
-            else:
-                # --- Check if prefetch is in progress ---
-                wait_event = None
-                with self._lock:
-                    if chunk_idx in in_progress:
-                        wait_event = in_progress[chunk_idx]
-                if wait_event is not None:
-                    # Wait for the prefetch to complete
-                    logger.debug(f"Waiting for prefetch of chunk {chunk_idx} for {file_path}")
-                    wait_event.wait()
-                    data = cache.get(chunk_idx)
-                    if data is not None:
-                        logger.debug(f"Cache HIT after wait: chunk {chunk_idx} for {file_path}")
-                        # Filter data to only active channels if needed
-                        if 'active_channels' in state and state['active_channels'] is not None:
-                            all_channels = list(rdr.channels)
-                            channel_indices = [all_channels.index(ch) for ch in active_channels]
-                            data = data[channel_indices, :]
-                    else:
-                        logger.warning(f"Prefetch failed for chunk {chunk_idx} for {file_path}, loading from disk.")
-                if data is None:
-                    logger.info(f"Cache MISS: chunk {chunk_idx} for {file_path}. Loading from disk.")
-                    # --- CACHE MISS (not in progress or prefetch failed) ---
-                    try:
-                        chunk_info = chunks[chunk_idx]
-                        data = rdr.get_data(active_channels, chunk_info['start'], chunk_info['end'])
-                        data = np.array(data)
-                        cache.put(chunk_idx, data)
-                    except Exception as e:
-                        logger.error(f"Error loading chunk {chunk_idx} for {file_path}: {e}")
-                        yield gRPCMef3Server_pb2.SignalChunk(
-                            file_path=file_path,
-                            error_message=str(e)
-                        )
-                        return
-
-            # --- Dynamic chunking for ~2.5MB ---
-            shape = list(data.shape)
-            num_channels = shape[0]
-            dtype_size = np.dtype('float64').itemsize
-            max_bytes = int(2.5 * 1024 * 1024)  # 2.5MB
-            samples_per_chunk = max(int(max_bytes / (num_channels * dtype_size)), 1)
-            total_samples = shape[1]
-            chunk_info = chunks[chunk_idx]
-            chunk_start = int(chunk_info['start'])
-            chunk_end = int(chunk_info['end'])
-
-            if active_channels:
-                fs = rdr.get_property('fsamp', active_channels[0])
-            else:
-                fs = rdr.get_property('fsamp')[0]
-
-            for start in range(0, total_samples, samples_per_chunk):
-                end = min(start + samples_per_chunk, total_samples)
-                tile = data[:, start:end]
-                # Calculate tile start/end timestamps
-                tile_start = chunk_start + int((start / total_samples) * (chunk_end - chunk_start))
-                tile_end = chunk_start + int((end / total_samples) * (chunk_end - chunk_start))
-                yield gRPCMef3Server_pb2.SignalChunk(
-                    file_path=file_path,
-                    array_bytes=tile.tobytes(),
-                    dtype='float64',
-                    shape=list(tile.shape),
-                    start_uutc=tile_start,
-                    end_uutc=tile_end,
-                    fs=fs,
-                    channel_names=active_channels,
-                    error_message=""
-                )
-        except Exception as e:
-            logger.error(f"Unexpected error in get_signal_segment: {e}")
-            yield gRPCMef3Server_pb2.SignalChunk(
-                file_path=file_path,
-                error_message=str(e)
-            )
 
     # ------------------------------------------------------------------
     # Timestamp-based access (tile cache): read any channels over any [t1, t2]
@@ -497,16 +280,16 @@ class FileManager:
 
         Args:
             file_path (str): Path to an open MEF file.
-            channels (list[str] or None): Channels to read; ``None``/empty uses the
-                active channels (or all channels).
+            channels (list[str] or None): Channels to read; ``None``/empty means
+                all channels in the file.
             start_uutc (int): Inclusive window start in microseconds (uUTC).
             end_uutc (int): Exclusive window end in microseconds (uUTC).
             prefetch (bool): Whether to prefetch neighboring tiles.
 
         Returns:
-            dict: ``{'array': np.ndarray (n_channels, n_samples) float32,
-                     'channel_names': list, 'fs': float,
-                     'start_uutc': int, 'end_uutc': int}``.
+            dict: A dict with keys ``array`` (``np.ndarray`` of shape
+            ``(n_channels, n_samples)``, ``float32``), ``channel_names``, ``fs``,
+            ``start_uutc`` and ``end_uutc``.
 
         Raises:
             ValueError: If the file is not open, channels are invalid, the requested
@@ -521,7 +304,7 @@ class FileManager:
             cache = self._tile_cache
             all_channels = list(rdr.channels)
             if not channels:
-                channels = state.get('active_channels') or all_channels
+                channels = all_channels
             channels = list(channels)
             invalid = [c for c in channels if c not in all_channels]
             if invalid:
@@ -775,8 +558,11 @@ class FileManager:
         fs = rdr.get_property('fsamp')
         ch_names = rdr.channels
         nch = len(ch_names)
-        start_uutc = min(rdr.get_property('start_time'))
-        end_uutc = max(rdr.get_property('end_time'))
+        # Per-channel start/end timestamps -- parallel to channel_names.
+        ch_starts = [int(s) for s in rdr.get_property('start_time')]
+        ch_ends = [int(e) for e in rdr.get_property('end_time')]
+        start_uutc = min(ch_starts)
+        end_uutc = max(ch_ends)
         duration_s = (end_uutc - start_uutc) / 1e6
 
         return gRPCMef3Server_pb2.FileInfoResponse(
@@ -788,6 +574,8 @@ class FileManager:
             start_uutc=start_uutc,
             end_uutc=end_uutc,
             duration_s=duration_s,
+            channel_start_uutc=ch_starts,
+            channel_end_uutc=ch_ends,
         )
 
     def close_file(self, file_path):
@@ -804,8 +592,7 @@ class FileManager:
                 if file_path in self._files:
                     # Clean up resources if necessary (e.g., rdr.close())
                     del self._files[file_path]
-                    # Clean up in-progress events for this file
-                    self._in_progress.pop(file_path, None)
+                    # Clean up in-progress tile prefetches for this file
                     self._tile_in_progress.pop(file_path, None)
                     # Purge this file's tiles from the shared cache.
                     self._tile_cache.evict_matching(lambda k: k[0] == file_path)
@@ -843,82 +630,6 @@ class FileManager:
                     error_message=str(e)
                 )
 
-    def set_signal_segment_size(self, file_path, seconds):
-        """Sets the segment size for signal data and updates segment metadata.
-
-        Args:
-            file_path (str): Path to the MEF file.
-            seconds (float): Duration of each segment in seconds.
-
-        Returns:
-            SetSignalSegmentResponse: Protobuf response with the number of segments.
-        """
-        with self._lock:
-            if file_path not in self._files:
-                logger.warning(f"set_signal_segment_size: file not open: {file_path}")
-                return gRPCMef3Server_pb2.SetSignalSegmentResponse(
-                    file_path=file_path,
-                    number_of_segments=0,
-                    error_message=f"File not open: {file_path}"
-                )
-
-            try:
-                state = self._files[file_path]
-                rdr = state['reader']
-                start_uutc = min(rdr.get_property('start_time'))
-                end_uutc = max(rdr.get_property('end_time'))
-                segment_starts = np.arange(start_uutc, end_uutc, seconds * 1e6)
-                segments = []
-                for s in segment_starts:
-                    seg_end = min(s + seconds * 1e6, end_uutc)
-                    segments.append({'start': s, 'end': seg_end})
-                # Ensure last segment is included even if shorter
-                if not segments or segments[-1]['end'] < end_uutc:
-                    if segments:
-                        last_start = segments[-1]['end']
-                    else:
-                        last_start = start_uutc
-                    segments.append({'start': last_start, 'end': end_uutc})
-                state['cache'] = LRUCache(capacity=self.cache_capacity)
-                self._in_progress.pop(file_path, None)
-                state['chunk_duration_s'] = seconds
-                state['chunks'] = segments
-                if segments:
-                    logger.info(f"Set segment size to {seconds}s for {file_path}, total segments: {len(segments)}")
-                    # Eagerly prefetch the first n_prefetch chunks
-                    num_to_prefetch = min(self.n_prefetch + 1, len(segments))
-                    for idx in range(num_to_prefetch):
-                        self._prefetch_executor.submit(self._load_and_cache_chunk, file_path, idx)
-
-                return gRPCMef3Server_pb2.SetSignalSegmentResponse(
-                    file_path=file_path,
-                    number_of_segments=len(segments),
-                    error_message=""
-                )
-            except Exception as e:
-                logger.error(f"Error in set_signal_segment_size for {file_path}: {e}")
-                return gRPCMef3Server_pb2.SetSignalSegmentResponse(
-                    file_path=file_path,
-                    number_of_segments=0,
-                    error_message=str(e)
-                )
-
-    def get_number_of_segments(self, file_path):
-        """Returns the number of signal segments currently configured for a file.
-
-        Args:
-            file_path (str): Path to the MEF file.
-
-        Returns:
-            int: Number of segments, or 0 if the file is not open or no segment
-                size has been set.
-        """
-        with self._lock:
-            state = self._files.get(file_path)
-            if state is None:
-                return 0
-            return len(state.get('chunks', []))
-
     def list_open_files(self):
         """Lists all currently open MEF files.
 
@@ -928,61 +639,3 @@ class FileManager:
         with self._lock:
             return list(self._files.keys())
 
-    def set_active_channels(self, file_path, channel_names):
-        with self._lock:
-            if file_path not in self._files:
-                return gRPCMef3Server_pb2.SetActiveChannelsResponse(
-                    file_path=file_path,
-                    active_channels=[],
-                    error_message=f"File not open: {file_path}"
-                )
-            state = self._files[file_path]
-            rdr = state['reader']
-            all_channels = set(rdr.channels)
-            requested = list(channel_names)
-            valid = [ch for ch in requested if ch in all_channels]
-            invalid = [ch for ch in requested if ch not in all_channels]
-            if not requested:
-                # Default to all channels
-                state['active_channels'] = list(rdr.channels)
-                return gRPCMef3Server_pb2.SetActiveChannelsResponse(
-                    file_path=file_path,
-                    active_channels=state['active_channels'],
-                    error_message=""
-                )
-            if not valid:
-                # None of the requested channels are valid, keep previous setup
-                prev = state.get('active_channels', list(rdr.channels))
-                return gRPCMef3Server_pb2.SetActiveChannelsResponse(
-                    file_path=file_path,
-                    active_channels=prev,
-                    error_message=f"No valid channels in request. Invalid: {invalid}"
-                )
-            # Set only valid channels
-            state['active_channels'] = valid
-            err_msg = f"Some channels do not exist: {invalid}" if invalid else ""
-            return gRPCMef3Server_pb2.SetActiveChannelsResponse(
-                file_path=file_path,
-                active_channels=valid,
-                error_message=err_msg
-            )
-
-    def get_active_channels(self, file_path):
-        with self._lock:
-            if file_path not in self._files:
-                return gRPCMef3Server_pb2.GetActiveChannelsResponse(
-                    file_path=file_path,
-                    active_channels=[],
-                    error_message=f"File not open: {file_path}"
-                )
-            state = self._files[file_path]
-            active = state.get('active_channels')
-            if active is None:
-                # Default to all channels
-                active = list(state['reader'].channels)
-                state['active_channels'] = active
-            return gRPCMef3Server_pb2.GetActiveChannelsResponse(
-                file_path=file_path,
-                active_channels=active,
-                error_message=""
-            )

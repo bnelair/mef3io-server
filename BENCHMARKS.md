@@ -13,9 +13,9 @@ processing code:
   cache** and **background prefetch** on top of the same `MefReader`.
 
 Every server read in the benchmarks goes through the **timestamp-based
-`get_signal_range` path** — the shared per-channel `TileCache` + background tile
-prefetch — which is the access model the redesign targets. (The deprecated
-window API `get_signal_segment` is no longer exercised by any benchmark.)
+`get_signal_range` path** — the shared per-channel `TileCache` + parallel decode +
+background tile prefetch. This is the server's only data-access model: every call
+is oriented in channels and time.
 
 The whole point of the benchmarks is to be honest about **when the server helps
 and when it doesn't**, because "the local reader is faster" is true for the

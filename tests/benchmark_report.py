@@ -216,8 +216,8 @@ def _setup_line(extra):
         parts.append(f"think-time={extra['sleep_seconds']} s")
     if extra.get("compute_repeats") is not None and extra.get("processing_mode") == "compute":
         parts.append(f"compute_repeats={extra['compute_repeats']}")
-    if extra.get("n_prefetch") is not None:
-        parts.append(f"n_prefetch={extra['n_prefetch']}")
+    if extra.get("prefetch_ahead_windows") is not None:
+        parts.append(f"prefetch_ahead={extra['prefetch_ahead_windows']}")
     return ", ".join(parts)
 
 

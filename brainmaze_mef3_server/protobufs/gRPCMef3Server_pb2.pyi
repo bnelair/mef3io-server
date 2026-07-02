@@ -12,20 +12,6 @@ class OpenFileRequest(_message.Message):
     file_path: str
     def __init__(self, file_path: _Optional[str] = ...) -> None: ...
 
-class CloseFileRequest(_message.Message):
-    __slots__ = ("file_path",)
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    def __init__(self, file_path: _Optional[str] = ...) -> None: ...
-
-class CloseFileResponse(_message.Message):
-    __slots__ = ("file_path", "error_message")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., error_message: _Optional[str] = ...) -> None: ...
-
 class FileInfoRequest(_message.Message):
     __slots__ = ("file_path",)
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
@@ -33,7 +19,7 @@ class FileInfoRequest(_message.Message):
     def __init__(self, file_path: _Optional[str] = ...) -> None: ...
 
 class FileInfoResponse(_message.Message):
-    __slots__ = ("file_path", "file_opened", "number_of_channels", "channel_names", "channel_sampling_rates", "start_uutc", "end_uutc", "duration_s", "error_message")
+    __slots__ = ("file_path", "file_opened", "number_of_channels", "channel_names", "channel_sampling_rates", "start_uutc", "end_uutc", "duration_s", "channel_start_uutc", "channel_end_uutc", "error_message")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     FILE_OPENED_FIELD_NUMBER: _ClassVar[int]
     NUMBER_OF_CHANNELS_FIELD_NUMBER: _ClassVar[int]
@@ -42,6 +28,8 @@ class FileInfoResponse(_message.Message):
     START_UUTC_FIELD_NUMBER: _ClassVar[int]
     END_UUTC_FIELD_NUMBER: _ClassVar[int]
     DURATION_S_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_START_UUTC_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_END_UUTC_FIELD_NUMBER: _ClassVar[int]
     ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     file_opened: bool
@@ -51,34 +39,10 @@ class FileInfoResponse(_message.Message):
     start_uutc: int
     end_uutc: int
     duration_s: float
+    channel_start_uutc: _containers.RepeatedScalarFieldContainer[int]
+    channel_end_uutc: _containers.RepeatedScalarFieldContainer[int]
     error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., file_opened: _Optional[bool] = ..., number_of_channels: _Optional[int] = ..., channel_names: _Optional[_Iterable[str]] = ..., channel_sampling_rates: _Optional[_Iterable[float]] = ..., start_uutc: _Optional[int] = ..., end_uutc: _Optional[int] = ..., duration_s: _Optional[float] = ..., error_message: _Optional[str] = ...) -> None: ...
-
-class SetSignalSegmentRequest(_message.Message):
-    __slots__ = ("file_path", "seconds")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    SECONDS_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    seconds: int
-    def __init__(self, file_path: _Optional[str] = ..., seconds: _Optional[int] = ...) -> None: ...
-
-class SetSignalSegmentResponse(_message.Message):
-    __slots__ = ("file_path", "number_of_segments", "error_message")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    NUMBER_OF_SEGMENTS_FIELD_NUMBER: _ClassVar[int]
-    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    number_of_segments: int
-    error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., number_of_segments: _Optional[int] = ..., error_message: _Optional[str] = ...) -> None: ...
-
-class SignalChunkRequest(_message.Message):
-    __slots__ = ("file_path", "chunk_idx")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    CHUNK_IDX_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    chunk_idx: int
-    def __init__(self, file_path: _Optional[str] = ..., chunk_idx: _Optional[int] = ...) -> None: ...
+    def __init__(self, file_path: _Optional[str] = ..., file_opened: _Optional[bool] = ..., number_of_channels: _Optional[int] = ..., channel_names: _Optional[_Iterable[str]] = ..., channel_sampling_rates: _Optional[_Iterable[float]] = ..., start_uutc: _Optional[int] = ..., end_uutc: _Optional[int] = ..., duration_s: _Optional[float] = ..., channel_start_uutc: _Optional[_Iterable[int]] = ..., channel_end_uutc: _Optional[_Iterable[int]] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class SignalRangeRequest(_message.Message):
     __slots__ = ("file_path", "channel_names", "start_uutc", "end_uutc")
@@ -125,47 +89,3 @@ class ListOpenFilesResponse(_message.Message):
     file_paths: _containers.RepeatedScalarFieldContainer[str]
     error_message: str
     def __init__(self, file_paths: _Optional[_Iterable[str]] = ..., error_message: _Optional[str] = ...) -> None: ...
-
-class SetActiveChannelsRequest(_message.Message):
-    __slots__ = ("file_path", "channel_names")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    channel_names: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, file_path: _Optional[str] = ..., channel_names: _Optional[_Iterable[str]] = ...) -> None: ...
-
-class SetActiveChannelsResponse(_message.Message):
-    __slots__ = ("file_path", "active_channels", "error_message")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    ACTIVE_CHANNELS_FIELD_NUMBER: _ClassVar[int]
-    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    active_channels: _containers.RepeatedScalarFieldContainer[str]
-    error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., active_channels: _Optional[_Iterable[str]] = ..., error_message: _Optional[str] = ...) -> None: ...
-
-class GetActiveChannelsRequest(_message.Message):
-    __slots__ = ("file_path",)
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    def __init__(self, file_path: _Optional[str] = ...) -> None: ...
-
-class GetActiveChannelsResponse(_message.Message):
-    __slots__ = ("file_path", "active_channels", "error_message")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    ACTIVE_CHANNELS_FIELD_NUMBER: _ClassVar[int]
-    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    active_channels: _containers.RepeatedScalarFieldContainer[str]
-    error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., active_channels: _Optional[_Iterable[str]] = ..., error_message: _Optional[str] = ...) -> None: ...
-
-class GetNumberOfSegmentsResponse(_message.Message):
-    __slots__ = ("file_path", "number_of_segments", "error_message")
-    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    NUMBER_OF_SEGMENTS_FIELD_NUMBER: _ClassVar[int]
-    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    file_path: str
-    number_of_segments: int
-    error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., number_of_segments: _Optional[int] = ..., error_message: _Optional[str] = ...) -> None: ...

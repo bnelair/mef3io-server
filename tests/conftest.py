@@ -158,10 +158,21 @@ def launch_server_process():
     """
     import multiprocessing
     from brainmaze_mef3_server.server.__main__ import main as server_entrypoint
-    
-    # Initialize process targeting the main entrypoint
-    proc = multiprocessing.Process(target=server_entrypoint, daemon=True)
-    proc.start()
+
+    # The server is launched as a DAEMON process, which cannot itself spawn child
+    # processes -- so the decode process pool must be off here (these functional
+    # tests check correctness on the thread path, not parallel decode). Set the env
+    # for the spawned child, then restore.
+    prev = os.environ.get("USE_PROCESS_POOL")
+    os.environ["USE_PROCESS_POOL"] = "0"
+    try:
+        proc = multiprocessing.Process(target=server_entrypoint, daemon=True)
+        proc.start()
+    finally:
+        if prev is None:
+            os.environ.pop("USE_PROCESS_POOL", None)
+        else:
+            os.environ["USE_PROCESS_POOL"] = prev
 
     # Wait for the server to bind the port and be ready
     time.sleep(3)
@@ -239,7 +250,7 @@ def shared_test_server():
     # Create server with default settings
     # Use port 50052 to avoid conflict with launch_server_process (port 50051)
     port = 50052
-    server = create_grpc_server(n_prefetch=3, cache_capacity_multiplier=3, max_workers=4)
+    server = create_grpc_server(max_workers=4)
     server.add_insecure_port(f"localhost:{port}")
     
     # Start server in a thread

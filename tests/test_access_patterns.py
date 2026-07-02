@@ -104,7 +104,6 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, b
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
     start_uutc = fi['start_uutc']
-    client.set_active_channels(benchmark_mef3_file, channels)
 
     record_benchmark_setup(
         benchmark,
@@ -152,7 +151,6 @@ def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, ben
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
     start_uutc = fi['start_uutc']
-    client.set_active_channels(benchmark_mef3_file, channels)
 
     record_benchmark_setup(
         benchmark,
