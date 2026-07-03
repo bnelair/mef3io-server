@@ -179,5 +179,8 @@ class ReaderProcessPool:
         return future.result()
 
     def shutdown(self):
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # Cancel queued work, then wait for in-flight decodes and join the
+        # workers. Tile decodes are short and bounded, so waiting is cheap and
+        # avoids leaking worker processes past teardown (which flakes tests).
         self._prefetched.clear()
+        self._executor.shutdown(wait=True, cancel_futures=True)

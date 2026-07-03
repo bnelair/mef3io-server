@@ -137,8 +137,19 @@ class Mef3Client:
         error_message = None
         for chunk in self.stub.GetSignalRange(req):
             if chunk.error_message:
-                error_message = chunk.error_message
-                break
+                # Any error invalidates the whole read: discard partial chunks and
+                # return array=None so callers can't mistake a truncated read for
+                # complete data.
+                return {
+                    'array': None,
+                    'channel_names': channel_names,
+                    'fs': fs,
+                    'start_uutc': got_start,
+                    'end_uutc': got_end,
+                    'dtype': dtype,
+                    'shape': None,
+                    'error_message': chunk.error_message,
+                }
             arr = np.frombuffer(chunk.array_bytes, dtype=chunk.dtype).reshape(chunk.shape)
             arrays.append(arr)
             channel_names = list(chunk.channel_names)
