@@ -9,12 +9,8 @@ import threading
 from mef_tools import MefReader
 from brainmaze_mef3_server.client import Mef3Client
 
-from .conftest import (
-    MEF3_TEST_FS,
-    MEF3_TEST_PRECISION,
-    MEF3_BENCHMARK_DURATION_S,
-    record_benchmark_setup,
-)
+from .benchmark_data import get_workload, server_kwargs
+from .conftest import record_benchmark_setup
 
 import time
 
@@ -23,21 +19,22 @@ import time
 BENCHMARK_NUM_CHUNKS = 20  # All benchmarks use 20 chunks for fair comparison
 BENCHMARK_SEGMENT_SIZE_S = 60  # 60 second segments
 ROUNDS = 1
-SLEEP_SECONDS = 0.3 # simulating processing delay
-N_PREFETCH = 1
-MAX_WORKERS = 20
-CACHE_CAPACITY_MULTIPLIER = 30
+SLEEP_SECONDS = 0.3 # simulating think-time between windows (use case A)
 
 
 # --- Helper functions for access patterns ---
 
-def grpc_sequential_forward(client, file_path, num_chunks):
-    """Access chunks in forward sequential order via gRPC."""
+def grpc_sequential_forward(client, file_path, channels, start_uutc, num_chunks):
+    """Scroll forward through the recording via gRPC, one window at a time.
+
+    Uses the timestamp-based :meth:`Mef3Client.get_signal_range` (tile cache +
+    background prefetch), so prefetch loads the next tiles during the simulated
+    think-time between windows.
+    """
+    seg_us = int(BENCHMARK_SEGMENT_SIZE_S * 1e6)
     for i in range(num_chunks):
-        ts = time.time()
-        _ = client.get_signal_segment(file_path, i)
-        te = time.time()
-        # print(f"gRPCReader - Chunk {i} read in {te - ts} seconds")
+        s = int(start_uutc) + i * seg_us
+        _ = client.get_signal_range(file_path, channels, s, s + seg_us)
         time.sleep(SLEEP_SECONDS)  # Simulate slight processing delay
 
 
@@ -65,7 +62,7 @@ def direct_mef_reader_access(rdr, num_chunks):
 # --- Benchmark Tests ---
 
 @pytest.mark.benchmark
-def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
+def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file, benchmark_config):
     """
     BASELINE: Direct MefReader access (no server, no cache).
     20 chunks, 60s each.
@@ -79,9 +76,9 @@ def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
         file_path=benchmark_mef3_file,
         total_channels=len(rdr.channels),
         active_channels=len(rdr.channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
@@ -93,43 +90,43 @@ def test_baseline_direct_mef_reader(benchmark, benchmark_mef3_file):
 
 
 @pytest.mark.benchmark
-def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, grpc_server_factory):
+def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, benchmark_config, grpc_server_factory):
     """
     Sequential forward access via gRPC WITH prefetching.
     20 chunks, 60s each.
     """
-    port = grpc_server_factory(n_prefetch=N_PREFETCH, cache_capacity_multiplier=CACHE_CAPACITY_MULTIPLIER, max_workers=MAX_WORKERS)
+    workload = get_workload(benchmark_config)
+    port = grpc_server_factory(**server_kwargs(workload))
     client = Mef3Client(f"localhost:{port}")
 
     # Setup
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
-    client.set_active_channels(benchmark_mef3_file, channels)
-    client.set_signal_segment_size(benchmark_mef3_file, BENCHMARK_SEGMENT_SIZE_S)
+    start_uutc = fi['start_uutc']
 
     record_benchmark_setup(
         benchmark,
-        access="gRPC sequential forward WITH prefetch",
+        access="gRPC sequential forward WITH prefetch (get_signal_range)",
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
         sleep_seconds=SLEEP_SECONDS,
         server="gRPC",
-        n_prefetch=N_PREFETCH,
-        cache_capacity_multiplier=CACHE_CAPACITY_MULTIPLIER,
-        prefetch_workers=MAX_WORKERS,
-        grpc_threads=MAX_WORKERS,  # benchmark server uses ThreadPoolExecutor(max_workers)
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=workload["prefetch_ahead_windows"],
+        prefetch_behind_windows=workload["prefetch_behind_windows"],
+        grpc_threads=workload["grpc_threads"],
     )
 
     # Benchmark
-    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
+    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, channels, start_uutc, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
 
     # Cleanup
     client.close_file(benchmark_mef3_file)
@@ -137,43 +134,46 @@ def test_grpc_sequential_forward_with_prefetch(benchmark, benchmark_mef3_file, g
 
 
 @pytest.mark.benchmark
-def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, grpc_server_factory):
+def test_grpc_sequential_forward_no_prefetch(benchmark, benchmark_mef3_file, benchmark_config, grpc_server_factory):
     """
     Sequential forward access via gRPC WITHOUT prefetching.
     Uses BENCHMARK_NUM_CHUNKS chunks of BENCHMARK_SEGMENT_SIZE_S seconds each.
     """
-    port = grpc_server_factory(n_prefetch=0, cache_capacity_multiplier=0, max_workers=1)
+    workload = get_workload(benchmark_config)
+    # Genuinely disable look-ahead/behind on the range path; parallel decode of
+    # the foreground read stays on (that is a server property, not "prefetch").
+    port = grpc_server_factory(**server_kwargs(
+        workload, prefetch_ahead_windows=0, prefetch_behind_windows=0, max_workers=1))
     client = Mef3Client(f"localhost:{port}")
 
-    # Setup - use server with n_prefetch=0
+    # Setup - server with window prefetch disabled
     client.open_file(benchmark_mef3_file)
     fi = client.get_file_info(benchmark_mef3_file)
     channels = fi['channel_names']
-    client.set_active_channels(benchmark_mef3_file, channels)
-    client.set_signal_segment_size(benchmark_mef3_file, BENCHMARK_SEGMENT_SIZE_S)
+    start_uutc = fi['start_uutc']
 
     record_benchmark_setup(
         benchmark,
-        access="gRPC sequential forward WITHOUT prefetch",
+        access="gRPC sequential forward WITHOUT prefetch (get_signal_range)",
         file_path=benchmark_mef3_file,
         total_channels=len(channels),
         active_channels=len(channels),
-        fs=MEF3_TEST_FS,
-        precision=MEF3_TEST_PRECISION,
-        duration_s=MEF3_BENCHMARK_DURATION_S,
+        fs=benchmark_config["sampling_rate_hz"],
+        precision=benchmark_config["precision"],
+        duration_s=benchmark_config["duration_s"],
         num_chunks=BENCHMARK_NUM_CHUNKS,
         segment_size_s=BENCHMARK_SEGMENT_SIZE_S,
         rounds=ROUNDS,
         sleep_seconds=SLEEP_SECONDS,
         server="gRPC",
-        n_prefetch=0,
-        cache_capacity_multiplier=0,
-        prefetch_workers=1,
+        use_process_pool=workload["use_process_pool"],
+        prefetch_ahead_windows=0,
+        prefetch_behind_windows=0,
         grpc_threads=1,  # benchmark server uses ThreadPoolExecutor(max_workers)
     )
 
     # Benchmark
-    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
+    benchmark.pedantic(grpc_sequential_forward, args=(client, benchmark_mef3_file, channels, start_uutc, BENCHMARK_NUM_CHUNKS), rounds=ROUNDS)
 
     # Cleanup
     client.close_file(benchmark_mef3_file)

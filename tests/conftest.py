@@ -15,6 +15,8 @@ import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
 
 from brainmaze_mef3_server.server.mef3_server import gRPCMef3Server, FileManager
 
+from .benchmark_data import load_benchmark_config, get_or_create_benchmark_file
+
 
 @pytest.fixture(scope="session")
 def mef3_file():
@@ -56,13 +58,13 @@ MEF3_BENCHMARK_DURATION_S = 2 * 60 * 60
 def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
                            active_channels, fs, precision, duration_s,
                            num_chunks, segment_size_s, rounds, sleep_seconds=None,
-                           server="none (direct MefReader)", n_prefetch=None,
-                           cache_capacity_multiplier=None, prefetch_workers=None,
-                           grpc_threads=None):
+                           server="none (direct MefReader)", **server_cfg):
     """Attach the file/dataset and server setup of a benchmark and print it.
 
     The info is stored in ``benchmark.extra_info`` (saved by ``--benchmark-save`` /
     ``--benchmark-json``) and printed so it is visible when running with ``-s``.
+    Any extra keyword (``server_cfg``) describing the server tuning under test is
+    recorded verbatim; ``None`` values are dropped.
     """
     info = {
         "access_pattern": access,
@@ -85,14 +87,7 @@ def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
         # --- Host ---
         "host_cpu_count": os.cpu_count(),
     }
-    if n_prefetch is not None:
-        info.update({
-            "n_prefetch": n_prefetch,
-            "cache_capacity_multiplier": cache_capacity_multiplier,
-            "cache_capacity": (n_prefetch * 2) + cache_capacity_multiplier,
-            "prefetch_workers": prefetch_workers,
-            "grpc_server_threads": grpc_threads,
-        })
+    info.update({k: v for k, v in server_cfg.items() if v is not None})
     benchmark.extra_info.update(info)
     print(f"\n[benchmark setup] {access}")
     for k, v in info.items():
@@ -100,36 +95,25 @@ def record_benchmark_setup(benchmark, *, access, file_path, total_channels,
 
 
 @pytest.fixture(scope="session")
-def benchmark_mef3_file():
+def benchmark_config():
+    """The dataset config driving benchmark file generation.
+
+    Values come from ``tests/benchmark_config.json`` (or ``$BENCHMARK_CONFIG``);
+    edit that file to switch between a small dev dataset and the full benchmark.
     """
-    Creates a realistic MEF3 file for benchmarks.
-    - 64 channels
-    - 256 Hz sampling rate
-    - 2 hours of data
-    - precision=2 as specified
-    - Timestamp set 100 days in past to simulate historical data
-    
-    Session-scoped for optimal performance across all benchmarks.
+    return load_benchmark_config()
+
+
+@pytest.fixture(scope="session")
+def benchmark_mef3_file(benchmark_config):
+    """Path to a persistent, config-driven MEF3 benchmark file.
+
+    The file is generated once from :func:`benchmark_config` and cached on disk
+    (see ``tests/benchmark_data.py``); identical configs are reused across runs
+    instead of being regenerated. Change the dataset by editing
+    ``tests/benchmark_config.json``.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "benchmark_data.mefd")
-        
-        wrt = MefWriter(file_path, overwrite=True)
-        wrt.mef_block_len = 10000
-        wrt.max_nans_written = 0
-        
-        # Use consistent timestamp in microseconds (MEF3 standard)
-        # Set 100 days in the past to simulate historical data
-        s = (datetime.datetime.now().timestamp() - 3600*24*MEF3_TEST_START_OFFSET_DAYS) * 1e6
-        
-        print("\n[Creating benchmark MEF3 file - 2 hours of data]")
-        for idx in range(MEF3_TEST_CHANNELS):
-            chname = f"chan_{idx+1:03d}"
-            x = np.random.randn(MEF3_BENCHMARK_DURATION_S * MEF3_TEST_FS)
-            wrt.write_data(x, chname, s, MEF3_TEST_FS, precision=MEF3_TEST_PRECISION)
-        print("[Benchmark MEF3 file created successfully]")
-        
-        yield file_path
+    return get_or_create_benchmark_file(benchmark_config)
 
 
 @pytest.fixture(scope="module")
@@ -174,10 +158,21 @@ def launch_server_process():
     """
     import multiprocessing
     from brainmaze_mef3_server.server.__main__ import main as server_entrypoint
-    
-    # Initialize process targeting the main entrypoint
-    proc = multiprocessing.Process(target=server_entrypoint, daemon=True)
-    proc.start()
+
+    # The server is launched as a DAEMON process, which cannot itself spawn child
+    # processes -- so the decode process pool must be off here (these functional
+    # tests check correctness on the thread path, not parallel decode). Set the env
+    # for the spawned child, then restore.
+    prev = os.environ.get("USE_PROCESS_POOL")
+    os.environ["USE_PROCESS_POOL"] = "0"
+    try:
+        proc = multiprocessing.Process(target=server_entrypoint, daemon=True)
+        proc.start()
+    finally:
+        if prev is None:
+            os.environ.pop("USE_PROCESS_POOL", None)
+        else:
+            os.environ["USE_PROCESS_POOL"] = prev
 
     # Wait for the server to bind the port and be ready
     time.sleep(3)
@@ -192,10 +187,15 @@ def launch_server_process():
 
 
 # --- Server and Client Fixtures ---------------------------------------
-def create_grpc_server(n_prefetch, cache_capacity_multiplier, max_workers):
-    """Factory function to create a gRPC server with specific FileManager settings."""
+def create_grpc_server(max_workers=4, **fm_kwargs):
+    """Create a gRPC server, forwarding ``fm_kwargs`` to the FileManager.
+
+    ``max_workers`` sizes both the gRPC servicer thread pool and the FileManager's
+    thread-prefetch fallback; any other FileManager knob (``use_process_pool``,
+    ``prefetch_ahead_windows``, ``tile_cache_bytes``, ...) is passed through.
+    """
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    file_manager = FileManager(n_prefetch, cache_capacity_multiplier, max_workers)
+    file_manager = FileManager(max_workers=max_workers, **fm_kwargs)
     servicer = gRPCMef3Server(file_manager)
     pb2_grpc.add_gRPCMef3ServerServicer_to_server(servicer, server)
     return server
@@ -208,24 +208,21 @@ def grpc_server_factory():
     Handles teardown automatically.
     """
     servers = []
-    # Start port allocation from a base number
-    next_port = 50060
 
-    def _server_starter(n_prefetch, cache_capacity_multiplier, max_workers):
-        nonlocal next_port
-        port = next_port
-        # Increment port number to ensure each server in a test run gets a unique port
-        next_port += 1
-
-        server = create_grpc_server(n_prefetch, cache_capacity_multiplier, max_workers)
-        server.add_insecure_port(f"localhost:{port}")
+    def _server_starter(max_workers=4, **fm_kwargs):
+        server = create_grpc_server(max_workers=max_workers, **fm_kwargs)
+        # Bind an OS-assigned ephemeral port (":0") and use whatever we get. A
+        # fixed port is not portable: Windows refuses to rebind a port that is
+        # still held/recently used, which flakes across tests.
+        port = server.add_insecure_port("localhost:0")
 
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
         time.sleep(0.1)
 
         servers.append(server)
-        print(f"\nStarted test gRPC server on port {port} with n_prefetch={n_prefetch}")
+        print(f"\nStarted test gRPC server on port {port} with "
+              f"max_workers={max_workers}, {fm_kwargs}")
         return port
 
     yield _server_starter
@@ -246,12 +243,12 @@ def shared_test_server():
     Creates a shared gRPC server for testing with multiple stubs.
     Uses threading instead of multiprocessing to avoid fork issues.
     """
-    # Create server with default settings
-    # Use port 50052 to avoid conflict with launch_server_process (port 50051)
-    port = 50052
-    server = create_grpc_server(n_prefetch=3, cache_capacity_multiplier=3, max_workers=4)
-    server.add_insecure_port(f"localhost:{port}")
-    
+    # Bind an OS-assigned ephemeral port (":0"); a fixed port is not portable
+    # (Windows refuses to rebind a recently-used port, and it can collide with
+    # the session-scoped server in test_client.py).
+    server = create_grpc_server(max_workers=4)
+    port = server.add_insecure_port("localhost:0")
+
     # Start server in a thread
     server_thread = threading.Thread(target=server.start, daemon=True)
     server_thread.start()

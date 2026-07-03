@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+// MEF3 data server: every data call is oriented purely in CHANNELS and TIME.
+// Open a file, inspect its metadata (channels, per-channel sampling rate and
+// per-channel start/end timestamps), then read any channels over any
+// [start_uutc, end_uutc) window via GetSignalRange.
+service gRPCMef3Server {
+  rpc OpenFile(OpenFileRequest) returns (FileInfoResponse) {}
+  rpc CloseFile(FileInfoRequest) returns (FileInfoResponse) {}
+  rpc FileInfo(FileInfoRequest) returns (FileInfoResponse) {}
+  rpc GetSignalRange(SignalRangeRequest) returns (stream SignalChunk) {}
+  rpc ListOpenFiles(ListOpenFilesRequest) returns (ListOpenFilesResponse) {}
+}
+
+message OpenFileRequest {
+  string file_path = 1;
+}
+
+message FileInfoRequest {
+  string file_path = 1;
+}
+
+// File metadata. channel_names, channel_sampling_rates, channel_start_uutc and
+// channel_end_uutc are parallel arrays (index i describes channel i).
+// start_uutc/end_uutc are the global recording span (min/max over channels).
+message FileInfoResponse {
+  string file_path = 1;
+  bool file_opened = 2;
+  optional int64 number_of_channels = 3;
+  repeated string channel_names = 4;
+  repeated float channel_sampling_rates = 5;
+  optional int64 start_uutc = 6;
+  optional int64 end_uutc = 7;
+  optional double duration_s = 8;
+  repeated int64 channel_start_uutc = 9;
+  repeated int64 channel_end_uutc = 10;
+  optional string error_message = 99;
+}
+
+// Timestamp-based access: read arbitrary channels over an arbitrary
+// [start_uutc, end_uutc) window. Empty channel_names means "all channels".
+message SignalRangeRequest {
+  string file_path = 1;
+  repeated string channel_names = 2;
+  int64 start_uutc = 3;
+  int64 end_uutc = 4;
+}
+
+message SignalChunk {
+  string file_path = 1;
+  bytes array_bytes = 2;
+  string dtype = 3;
+  repeated int64 shape = 4;
+  int64 start_uutc = 5;
+  int64 end_uutc = 6;
+  double fs = 7;
+  repeated string channel_names = 8;
+  optional string error_message = 99;
+}
+
+message ListOpenFilesRequest {}
+
+message ListOpenFilesResponse {
+  repeated string file_paths = 1;
+  optional string error_message = 99;
+}

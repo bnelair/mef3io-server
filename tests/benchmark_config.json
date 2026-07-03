@@ -1,0 +1,41 @@
+{
+  "channels": 128,
+  "sampling_rate_hz": 256,
+  "duration_s": 21600,
+  "precision": 2,
+  "mef_block_len": 1000,
+  "start_offset_days": 100,
+  "seed": 42,
+  "data_dir": "benchmark_data",
+  "workload": {
+    "num_chunks": 20,
+    "segment_size_s": 60,
+    "processing_mode": "compute",
+    "processing_cost_s": 0.5,
+    "compute_repeats": 1,
+
+    "num_tools": 4,
+    "tool_overlap": 1.0,
+
+    "grpc_threads": 20,
+    "use_process_pool": true,
+    "reader_processes": null,
+    "prefetch_processes": null,
+    "min_parallel_tiles": 2,
+    "prefetch_ahead_windows": 1,
+    "prefetch_behind_windows": 1,
+    "tile_duration_s": 60,
+    "tile_cache_mb": 512,
+    "cache_ttl_s": 1800,
+
+    "reader_pool_workers": 16,
+    "read_window_s": 300,
+    "prefetch_chunk_s": 60,
+    "prefetch_ahead_chunks": 2
+  },
+  "crossover": {
+    "compute_repeats_sweep": [1, 2, 4, 8, 16],
+    "include_no_prefetch": true,
+    "output_dir": "benchmark_results"
+  }
+}

@@ -89,7 +89,7 @@ jobs:
           PY
 
       - name: Run tests
-        run: pytest -q -m "not slow and not benchmark"
+        run: pytest -q -m "not slow and not benchmark and not crossover"
 
       - name: Build distribution artifacts
         run: python -m build

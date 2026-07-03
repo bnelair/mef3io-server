@@ -14,7 +14,12 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Check out repository
@@ -30,8 +35,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
           pip install pytest~=8.4.2 pytest-order pytest-benchmark tqdm build
+      # 'crossover' is a heavy performance sweep that regenerates the full
+      # multi-GB benchmark dataset; it is excluded here (matching the default in
+      # pyproject.toml) and run manually, not on every push across every OS.
       - name: Run tests
-        run: pytest -q -m "not slow and not benchmark"
+        run: pytest -q -m "not slow and not benchmark and not crossover"
 
+      # Build the sdist/wheel once (on Linux); it is platform-independent.
       - name: Build distribution artifacts
+        if: runner.os == 'Linux'
         run: python -m build

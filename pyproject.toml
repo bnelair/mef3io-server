@@ -42,9 +42,11 @@ dev = [
 markers = [
     "slow: long-running functional tests (run manually, not in CI)",
     "benchmark: performance benchmarks (run manually, not in CI)",
+    "crossover: heavy crossover-curve analysis, opt-in only via `-m crossover`",
 ]
-# CI runs plain `pytest`; slow/benchmark suites are opt-in via `-m slow` / `-m benchmark`.
-addopts = "-m 'not slow and not benchmark'"
+# CI runs plain `pytest`; slow/benchmark/crossover suites are opt-in via markers.
+# `crossover` is excluded from `-m benchmark` too, so it never runs in a normal sweep.
+addopts = "-m 'not slow and not benchmark and not crossover'"
 
 [tool.setuptools.packages.find]
 where = ["."]

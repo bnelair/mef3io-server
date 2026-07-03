@@ -1,16 +1,17 @@
 .. brainmaze-mef3-server documentation master file
 
 Welcome to brainmaze-mef3-server's documentation!
-=============================================
+==================================================
 
-A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files, with LRU caching and background prefetching. Designed for scalable neurophysiology data streaming and analysis.
+A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files. Every data call is oriented purely in **channels and time**: open a file, read its metadata, then request any channels over any ``[start_uutc, end_uutc)`` window. Backed by a per-channel tile cache, parallel decode across worker processes, and configurable window prefetch. Designed for scalable neurophysiology data streaming and analysis.
 
 Features
 --------
 
-- gRPC API for remote MEF3 file access
-- Thread-safe LRU cache for signal chunks
-- Asynchronous prefetching for low-latency streaming
+- gRPC API for remote MEF3 file access, oriented purely in **channels and time**
+- Shared, byte-budgeted per-channel **tile cache** with an idle TTL
+- **Parallel MEF3 decode** across worker processes (pymef decode is GIL-bound)
+- Configurable **window look-ahead/behind prefetch** for smooth paging
 - Configurable via environment variables or Docker
 - Ready for deployment in Docker and CI/CD pipelines
 
@@ -101,9 +102,14 @@ Run the server with configurable options:
 Configuration via Environment Variables:
 
 - ``PORT``: gRPC server port (default: 50051)
-- ``N_PREFETCH``: Number of chunks to prefetch (default: 3)
-- ``CACHE_CAPACITY_MULTIPLIER``: Extra cache slots (default: 3)
-- ``MAX_WORKERS``: Prefetch thread pool size (default: 4)
+- ``TILE_DURATION_S``: Tile length in seconds for the tile cache (default: 60)
+- ``TILE_CACHE_MB``: Global tile-cache budget in MB (default: 512)
+- ``CACHE_TTL_S``: Discard tiles idle longer than this; ``0`` disables (default: 1800)
+- ``USE_PROCESS_POOL``: Decode in worker processes for parallel decode (default: ``true``)
+- ``READER_PROCESSES`` / ``PREFETCH_PROCESSES``: Total / prefetch-lane decode processes (default: auto)
+- ``PREFETCH_AHEAD_WINDOWS`` / ``PREFETCH_BEHIND_WINDOWS``: Windows to prefetch forward / backward (default: 1 / 1)
+- ``MIN_PARALLEL_TILES``: Min missing tiles before using the pool (default: 2)
+- ``MAX_WORKERS``: Thread-pool size for the in-process prefetch fallback (default: 4)
 
 Using the Python Client
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -119,14 +125,18 @@ The package provides a high-level client for interacting with the server:
    # Open a file. When the server runs in Docker, pass the absolute path as it
    # exists on the host (mounted at /host_root); the server maps it automatically.
    info = client.open_file("/path/to/file.mefd")
-   print("Opened file:", info)
+   print("Channels:", info["channel_names"])
+   print("Per-channel start/end:", info["channel_start_uutc"], info["channel_end_uutc"])
 
-   # Set the segment size (in seconds)
-   resp = client.set_signal_segment_size("/path/to/file.mefd", 60)
-   print("Number of segments:", resp["number_of_segments"])
-
-   # Get a segment of signal data (returns a dict with a single numpy array)
-   result = client.get_signal_segment("/path/to/file.mefd", chunk_idx=0)
+   # Read any channels over any [start_uutc, end_uutc) window (microseconds, uUTC).
+   # channels=None means all channels.
+   t0 = info["start_uutc"]
+   result = client.get_signal_range(
+       "/path/to/file.mefd",
+       channels=["Ch1", "Ch2"],
+       start_uutc=t0,
+       end_uutc=t0 + 10_000_000,  # +10 s
+   )
    print("Shape:", result["shape"], "channels:", result["channel_names"])
 
    # Close the file
@@ -142,8 +152,9 @@ Contents
 
    api/client
    api/server
-   api/cache
    api/file_manager
+   api/tile_cache
+   api/reader_pool
    api/config_manager
    api/log_manager
 
