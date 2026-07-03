@@ -24,6 +24,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Configures the GitHub Pages deployment target and enables Pages via the
+      # API if it isn't already. Its absence is a common cause of deploy-pages
+      # failing with "Deployment failed, try again later" (e.g. after a repo
+      # rename resets the Pages source). Requires `pages: write` (set above).
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
