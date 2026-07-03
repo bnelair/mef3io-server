@@ -26,6 +26,9 @@ ENV/
 *.swo
 *~
 
+# macOS
+.DS_Store
+
 # Distribution / packaging
 build/
 dist/
