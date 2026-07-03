@@ -26,6 +26,9 @@ ENV/
 *.swo
 *~
 
+# Claude Code local config (should not be committed)
+.claude/
+
 # macOS
 .DS_Store
 
