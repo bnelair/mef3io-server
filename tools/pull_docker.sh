@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download (pull) the appropriate brainmaze-mef3-server image from the GitHub
+# Download (pull) the appropriate mef3io-server image from the GitHub
 # Container Registry (GHCR). The GHCR package is public, so NO login is required.
 #
 # Usage:
@@ -7,7 +7,7 @@
 #   TAG defaults to "latest" (e.g. "1.0.1", "1.0", "latest").
 set -e
 
-IMAGE="ghcr.io/bnelair/brainmaze-mef3-server"
+IMAGE="ghcr.io/bnelair/mef3io-server"
 TAG="${1:-latest}"
 
 echo "Pulling ${IMAGE}:${TAG} ..."

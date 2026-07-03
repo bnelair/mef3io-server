@@ -22,8 +22,8 @@ WORKDIR /app
 # Copy all your local code (including pyproject.toml) into the container
 COPY . .
 
-# Make brainmaze-mef3-server.sh executable
-RUN chmod +x /app/brainmaze-mef3-server.sh
+# Make mef3io-server.sh executable
+RUN chmod +x /app/mef3io-server.sh
 
 # Install the package and its dependencies from pyproject.toml
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
@@ -32,4 +32,4 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 EXPOSE 50051
 
 # The command to run your server
-CMD ["/app/brainmaze-mef3-server.sh"]
+CMD ["/app/mef3io-server.sh"]

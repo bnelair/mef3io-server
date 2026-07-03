@@ -2,10 +2,10 @@
 set -e
 
 # Optional: print environment info for debugging
-echo "Starting brainmaze-mef3-server..."
+echo "Starting mef3io-server..."
 echo "Python version: $(python --version)"
 echo "Working directory: $(pwd)"
 
 # Launch the gRPC server
-exec python -u -m brainmaze_mef3_server.server
+exec python -u -m mef3io_server.server
 

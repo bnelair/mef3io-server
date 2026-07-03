@@ -1,15 +1,15 @@
 from concurrent import futures
 import threading
 import numpy as np
-import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
+import mef3io_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
-from brainmaze_mef3_server.server.tile_cache import TileCache, CACHE_DTYPE
-from brainmaze_mef3_server.server.reader_pool import ReaderProcessPool
+from mef3io_server.server.tile_cache import TileCache, CACHE_DTYPE
+from mef3io_server.server.reader_pool import ReaderProcessPool
 from mef_tools import MefReader
-from brainmaze_mef3_server.server.log_manager import get_logger
+from mef3io_server.server.log_manager import get_logger
 import os
 
-logger = get_logger("brainmaze_mef3_server.file_manager")
+logger = get_logger("mef3io_server.file_manager")
 
 
 def is_running_in_docker():

@@ -27,7 +27,7 @@ import datetime
 import pytest
 from mef_tools import MefReader
 
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 
 from .benchmark_data import get_workload, get_crossover, server_kwargs, _resolve_data_dir
 from .test_automated_processing import native_processing, grpc_processing

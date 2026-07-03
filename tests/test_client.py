@@ -1,13 +1,13 @@
 import pytest
 import numpy as np
 
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 
 import time
 import grpc
 from concurrent import futures
-import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
-from brainmaze_mef3_server.server.mef3_server import gRPCMef3Server, FileManager
+import mef3io_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
+from mef3io_server.server.mef3_server import gRPCMef3Server, FileManager
 
 @pytest.fixture(scope="session")
 def grpc_server():

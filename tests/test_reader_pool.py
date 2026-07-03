@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from mef_tools import MefReader
 
-from brainmaze_mef3_server.server.reader_pool import ReaderProcessPool, _worker_read
+from mef3io_server.server.reader_pool import ReaderProcessPool, _worker_read
 from .benchmark_data import load_benchmark_config, get_workload
 from .conftest import mef3_file  # noqa: F401 - pytest fixture
 from .test_automated_processing import run_detector

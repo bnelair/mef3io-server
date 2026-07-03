@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the brainmaze-mef3-server benchmarks using the CURRENTLY ACTIVE
+# Run the mef3io-server benchmarks using the CURRENTLY ACTIVE
 # environment (e.g. an activated conda env). It does not switch envs for you --
 # activate the one you want first, for example:
 #
@@ -45,7 +45,7 @@ if [[ -z "$PY" ]]; then
 fi
 
 echo "=================================================================="
-echo " brainmaze-mef3-server benchmarks"
+echo " mef3io-server benchmarks"
 echo "   python : $PY"
 echo "   version: $("$PY" --version 2>&1)"
 echo "   conda  : ${CONDA_DEFAULT_ENV:-<none>}"

@@ -11,9 +11,9 @@ import grpc
 import threading
 from concurrent import futures
 
-import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
+import mef3io_server.protobufs.gRPCMef3Server_pb2_grpc as pb2_grpc
 
-from brainmaze_mef3_server.server.mef3_server import gRPCMef3Server, FileManager
+from mef3io_server.server.mef3_server import gRPCMef3Server, FileManager
 
 from .benchmark_data import load_benchmark_config, get_or_create_benchmark_file
 
@@ -157,7 +157,7 @@ def launch_server_process():
     Used for functional tests that need server on port 50051.
     """
     import multiprocessing
-    from brainmaze_mef3_server.server.__main__ import main as server_entrypoint
+    from mef3io_server.server.__main__ import main as server_entrypoint
 
     # The server is launched as a DAEMON process, which cannot itself spawn child
     # processes -- so the decode process pool must be off here (these functional

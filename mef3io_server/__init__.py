@@ -17,7 +17,7 @@ import re
 def _detect_version() -> str:
     """Return the installed package version or fall back to the nearest ``pyproject.toml``."""
 
-    for package_name in ("brainmaze-mef3-server", "brainmaze_mef3_server"):
+    for package_name in ("mef3io-server", "mef3io_server"):
         try:
             return version(package_name)
         except PackageNotFoundError:

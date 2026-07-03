@@ -13,7 +13,7 @@
 #   echo "$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
 set -e
 
-IMAGE="ghcr.io/bnelair/brainmaze-mef3-server"
+IMAGE="ghcr.io/bnelair/mef3io-server"
 TAG="${1:-local}"
 
 docker build --pull -f Dockerfile -t "$IMAGE:$TAG" .

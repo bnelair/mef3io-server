@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from brainmaze_mef3_server.protobufs import gRPCMef3Server_pb2 as brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2
+from mef3io_server.protobufs import gRPCMef3Server_pb2 as mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2
 
 GRPC_GENERATED_VERSION = '1.81.1'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in brainmaze_mef3_server/protobufs/gRPCMef3Server_pb2_grpc.py depends on'
+        + ' but the generated code in mef3io_server/protobufs/gRPCMef3Server_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -40,28 +40,28 @@ class gRPCMef3ServerStub:
         """
         self.OpenFile = channel.unary_unary(
                 '/gRPCMef3Server/OpenFile',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.CloseFile = channel.unary_unary(
                 '/gRPCMef3Server/CloseFile',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.FileInfo = channel.unary_unary(
                 '/gRPCMef3Server/FileInfo',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
                 _registered_method=True)
         self.GetSignalRange = channel.unary_stream(
                 '/gRPCMef3Server/GetSignalRange',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
                 _registered_method=True)
         self.ListOpenFiles = channel.unary_unary(
                 '/gRPCMef3Server/ListOpenFiles',
-                request_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
-                response_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
                 _registered_method=True)
 
 
@@ -107,28 +107,28 @@ def add_gRPCMef3ServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'OpenFile': grpc.unary_unary_rpc_method_handler(
                     servicer.OpenFile,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'CloseFile': grpc.unary_unary_rpc_method_handler(
                     servicer.CloseFile,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'FileInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.FileInfo,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.SerializeToString,
             ),
             'GetSignalRange': grpc.unary_stream_rpc_method_handler(
                     servicer.GetSignalRange,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.SerializeToString,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.SerializeToString,
             ),
             'ListOpenFiles': grpc.unary_unary_rpc_method_handler(
                     servicer.ListOpenFiles,
-                    request_deserializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
-                    response_serializer=brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -160,8 +160,8 @@ class gRPCMef3Server:
             request,
             target,
             '/gRPCMef3Server/OpenFile',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.OpenFileRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -187,8 +187,8 @@ class gRPCMef3Server:
             request,
             target,
             '/gRPCMef3Server/CloseFile',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -214,8 +214,8 @@ class gRPCMef3Server:
             request,
             target,
             '/gRPCMef3Server/FileInfo',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.FileInfoResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -241,8 +241,8 @@ class gRPCMef3Server:
             request,
             target,
             '/gRPCMef3Server/GetSignalRange',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalRangeRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.SignalChunk.FromString,
             options,
             channel_credentials,
             insecure,
@@ -268,8 +268,8 @@ class gRPCMef3Server:
             request,
             target,
             '/gRPCMef3Server/ListOpenFiles',
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
-            brainmaze__mef3__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
             options,
             channel_credentials,
             insecure,

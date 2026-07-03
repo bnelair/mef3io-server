@@ -1,4 +1,4 @@
-# brainmaze-mef3-server
+# mef3io-server
 
 A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files. Every data call is oriented purely in **channels and time**: open a file, read its metadata, then request any channels over any `[start_uutc, end_uutc)` window. Backed by a byte-budgeted per-channel tile cache, parallel decode across worker processes, and configurable window prefetch. Designed for scalable neurophysiology data streaming and analysis.
 
@@ -47,19 +47,19 @@ pip install -e .[dev]
 Released images are published to the GitHub Container Registry (GHCR). The package
 is public:
 ```sh
-docker pull ghcr.io/bnelair/brainmaze-mef3-server:latest
+docker pull ghcr.io/bnelair/mef3io-server:latest
 docker run -e PORT=50051 -p 50051:50051 \
   -v /:/host_root:ro \
-  ghcr.io/bnelair/brainmaze-mef3-server:latest
+  ghcr.io/bnelair/mef3io-server:latest
 ```
 
 #### Build locally
 The image is based on `ubuntu:24.04` with Python 3.12:
 ```sh
-docker build -t brainmaze-mef3-server .
+docker build -t mef3io-server .
 docker run -e PORT=50051 -p 50051:50051 \
   -v /:/host_root:ro \
-  brainmaze-mef3-server
+  mef3io-server
 ```
 
 #### Accessing MEF3 files from the container
@@ -94,7 +94,7 @@ To limit what the container can see, mount only the directory holding your data,
 ### As a Python Module
 Run the server with configurable options:
 ```sh
-python -m brainmaze_mef3_server.server
+python -m mef3io_server.server
 ```
 
 #### Configuration via Environment Variables
@@ -126,9 +126,9 @@ Example — interactive viewing (page both ways), and a detector single-pass
 (stream forward, no look-behind, deeper look-ahead):
 ```sh
 # viewer
-PORT=50052 PREFETCH_AHEAD_WINDOWS=1 PREFETCH_BEHIND_WINDOWS=1 python -m brainmaze_mef3_server.server
+PORT=50052 PREFETCH_AHEAD_WINDOWS=1 PREFETCH_BEHIND_WINDOWS=1 python -m mef3io_server.server
 # detector / automated single pass
-PREFETCH_AHEAD_WINDOWS=3 PREFETCH_BEHIND_WINDOWS=0 python -m brainmaze_mef3_server.server
+PREFETCH_AHEAD_WINDOWS=3 PREFETCH_BEHIND_WINDOWS=0 python -m mef3io_server.server
 ```
 
 ### As a Docker Container
@@ -137,7 +137,7 @@ The `-v /:/host_root:ro` mount is required so the server can reach files on the 
 ```sh
 docker run -e PORT=50051 -e TILE_CACHE_MB=1024 -p 50051:50051 \
   -v /:/host_root:ro \
-  ghcr.io/bnelair/brainmaze-mef3-server:latest
+  ghcr.io/bnelair/mef3io-server:latest
 ```
 
 ## Python Usage Examples
@@ -146,8 +146,8 @@ docker run -e PORT=50051 -e TILE_CACHE_MB=1024 -p 50051:50051 \
 You can launch the gRPC server directly from Python by importing and running the server class:
 
 ```python
-from brainmaze_mef3_server.server.mef3_server import gRPCMef3Server
-from brainmaze_mef3_server.server.file_manager import FileManager
+from mef3io_server.server.mef3_server import gRPCMef3Server
+from mef3io_server.server.file_manager import FileManager
 import grpc
 from concurrent import futures
 
@@ -157,7 +157,7 @@ file_manager = FileManager(tile_cache_bytes=512 * 1024 * 1024, prefetch_ahead_wi
 # Create the gRPC server and add the MEF3 service
 server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 servicer = gRPCMef3Server(file_manager)
-from brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2_grpc import add_gRPCMef3ServerServicer_to_server
+from mef3io_server.protobufs.gRPCMef3Server_pb2_grpc import add_gRPCMef3ServerServicer_to_server
 add_gRPCMef3ServerServicer_to_server(servicer, server)
 
 # Start the server
@@ -172,7 +172,7 @@ server.wait_for_termination()
 The package provides a high-level client for interacting with the server:
 
 ```python
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 
 client = Mef3Client("localhost:50052")
 
@@ -209,7 +209,7 @@ client.shutdown()
 See the [API section](#api) and the Python docstrings for more details on each method.
 
 ## API
-The server exposes a gRPC API. See `brainmaze_mef3_server/protobufs/gRPCMef3Server.proto` for service and message definitions.
+The server exposes a gRPC API. See `mef3io_server/protobufs/gRPCMef3Server.proto` for service and message definitions.
 
 Every data access is oriented in **channels and time** — there is no segment grid
 and no server-side channel selection; each request is self-contained.
@@ -228,7 +228,7 @@ For testing with real-life large MEF3 files, use the `demo/run_big_data.py` scri
 
 ```sh
 # Start the server
-python -m brainmaze_mef3_server.server &
+python -m mef3io_server.server &
 
 # Run the big data test
 python demo/run_big_data.py /path/to/large_file.mefd localhost:50051
@@ -334,7 +334,7 @@ sphinx-build -b html docs/ docs/_build/html
 The built documentation will be available at `docs/_build/html/index.html`.
 
 #### Online Documentation
-Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch. The documentation is available at: https://bnelair.github.io/brainmaze-mef3-server/
+Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch. The documentation is available at: https://bnelair.github.io/mef3io-server/
 
 The deployment uses GitHub Actions (see `.github/workflows/docs.yml`) and publishes to the `gh-pages` branch.
 

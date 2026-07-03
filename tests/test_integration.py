@@ -4,7 +4,7 @@ import time
 import subprocess
 import signal
 import os
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 from .conftest import mef3_file
 
 
@@ -67,7 +67,7 @@ def test_repeated_range_reads_varied_windows(shared_test_server, mef3_file):
 
 def test_docker_path_handling():
     """Test that Docker path detection doesn't crash."""
-    from brainmaze_mef3_server.server.file_manager import is_running_in_docker, get_actual_file_path
+    from mef3io_server.server.file_manager import is_running_in_docker, get_actual_file_path
 
     # These functions should not crash
     in_docker = is_running_in_docker()

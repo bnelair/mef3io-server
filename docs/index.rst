@@ -1,6 +1,6 @@
-.. brainmaze-mef3-server documentation master file
+.. mef3io-server documentation master file
 
-Welcome to brainmaze-mef3-server's documentation!
+Welcome to mef3io-server's documentation!
 ==================================================
 
 A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysiology Format) files. Every data call is oriented purely in **channels and time**: open a file, read its metadata, then request any channels over any ``[start_uutc, end_uutc)`` window. Backed by a per-channel tile cache, parallel decode across worker processes, and configurable window prefetch. Designed for scalable neurophysiology data streaming and analysis.
@@ -45,13 +45,13 @@ reach files on the host (see `Accessing MEF3 files from the container`_):
    # Prebuilt image (public, no login needed)
    docker run -e PORT=50051 -p 50051:50051 \
      -v /:/host_root:ro \
-     ghcr.io/bnelair/brainmaze-mef3-server:latest
+     ghcr.io/bnelair/mef3io-server:latest
 
    # Or build locally (image is based on ubuntu:24.04 with Python 3.12)
-   docker build -t brainmaze-mef3-server .
+   docker build -t mef3io-server .
    docker run -e PORT=50051 -p 50051:50051 \
      -v /:/host_root:ro \
-     brainmaze-mef3-server
+     mef3io-server
 
 Accessing MEF3 files from the container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -97,7 +97,7 @@ Run the server with configurable options:
 
 .. code-block:: bash
 
-   python -m brainmaze_mef3_server.server
+   python -m mef3io_server.server
 
 Configuration via Environment Variables:
 
@@ -118,7 +118,7 @@ The package provides a high-level client for interacting with the server:
 
 .. code-block:: python
 
-   from brainmaze_mef3_server.client import Mef3Client
+   from mef3io_server.client import Mef3Client
 
    client = Mef3Client("localhost:50052")
 

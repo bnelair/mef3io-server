@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains the Sphinx documentation for the brainmaze-mef3-server project.
+This directory contains the Sphinx documentation for the mef3io-server project.
 
 ## Building Documentation Locally
 
@@ -32,7 +32,7 @@ Documentation is automatically built and deployed to GitHub Pages whenever chang
 3. Deploying to the `gh-pages` branch
 4. Publishing to GitHub Pages
 
-The live documentation is available at: https://bnelair.github.io/brainmaze-mef3-server/
+The live documentation is available at: https://bnelair.github.io/mef3io-server/
 
 ## Documentation Structure
 

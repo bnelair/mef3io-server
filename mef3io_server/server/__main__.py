@@ -6,7 +6,7 @@ import os
 import signal
 import sys
 import time
-from brainmaze_mef3_server.server.mef3_server import gRPCMef3ServerHandler
+from mef3io_server.server.mef3_server import gRPCMef3ServerHandler
 
 print("[MEF3 SERVER] Starting server from __main__.py...")
 

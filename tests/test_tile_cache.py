@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pytest
 
-from brainmaze_mef3_server.server.tile_cache import TileCache, CACHE_DTYPE
+from mef3io_server.server.tile_cache import TileCache, CACHE_DTYPE
 
 
 def _tile(n, fill=1.0):

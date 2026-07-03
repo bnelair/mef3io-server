@@ -7,7 +7,7 @@ import pytest
 import numpy as np
 import threading
 from mef_tools import MefReader
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 
 from .benchmark_data import get_workload, server_kwargs
 from .conftest import record_benchmark_setup

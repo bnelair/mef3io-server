@@ -7,13 +7,13 @@ over an arbitrary time window, and closing the file using the high-level client.
 
 Prerequisite: the server is running in Docker with the host mounted at /host_root, e.g.
 
-    docker run -p 50051:50051 -v /:/host_root:ro ghcr.io/bnelair/brainmaze-mef3-server:latest
+    docker run -p 50051:50051 -v /:/host_root:ro ghcr.io/bnelair/mef3io-server:latest
 
 When the server runs in Docker it reads files via /host_root, so pass MEF3_FILE as the
 absolute path AS IT EXISTS ON THE HOST (e.g. /data/recordings/x.mefd). The server maps
 it to /host_root/data/recordings/x.mefd automatically -- do not add /host_root yourself.
 """
-from brainmaze_mef3_server.client import Mef3Client
+from mef3io_server.client import Mef3Client
 import os
 
 # Absolute path to the MEF3 file on the HOST. Edit this to point at your own file.

@@ -9,11 +9,11 @@
 # server resolves it to /host_root/data/x.mefd inside the container.
 set -e
 
-docker build -t brainmaze-mef3-server:demo .
+docker build -t mef3io-server:demo .
 
-docker run --name brainmaze-mef3-demo \
+docker run --name mef3io-demo \
   -p 127.0.0.1:50051:50051 \
   -v /:/host_root:ro \
-  brainmaze-mef3-server:demo
+  mef3io-server:demo
 
 # add -d to run in the background

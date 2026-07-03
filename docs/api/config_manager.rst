@@ -3,7 +3,7 @@ Config Manager
 
 Configuration management utilities for the MEF3 server.
 
-.. automodule:: brainmaze_mef3_server.server.config_manager
+.. automodule:: mef3io_server.server.config_manager
    :members:
    :undoc-members:
    :show-inheritance:

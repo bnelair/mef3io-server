@@ -6,7 +6,7 @@ from mef_tools import MefReader
 
 # Import your server implementation and generated protobuf files
 
-import brainmaze_mef3_server.protobufs.gRPCMef3Server_pb2 as pb2
+import mef3io_server.protobufs.gRPCMef3Server_pb2 as pb2
 
 from .conftest import mef3_file, grpc_stub_1, grpc_stub_2
 
