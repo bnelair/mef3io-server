@@ -208,17 +208,13 @@ def grpc_server_factory():
     Handles teardown automatically.
     """
     servers = []
-    # Start port allocation from a base number
-    next_port = 50060
 
     def _server_starter(max_workers=4, **fm_kwargs):
-        nonlocal next_port
-        port = next_port
-        # Increment port number to ensure each server in a test run gets a unique port
-        next_port += 1
-
         server = create_grpc_server(max_workers=max_workers, **fm_kwargs)
-        server.add_insecure_port(f"localhost:{port}")
+        # Bind an OS-assigned ephemeral port (":0") and use whatever we get. A
+        # fixed port is not portable: Windows refuses to rebind a port that is
+        # still held/recently used, which flakes across tests.
+        port = server.add_insecure_port("localhost:0")
 
         server_thread = threading.Thread(target=server.start, daemon=True)
         server_thread.start()
@@ -247,12 +243,12 @@ def shared_test_server():
     Creates a shared gRPC server for testing with multiple stubs.
     Uses threading instead of multiprocessing to avoid fork issues.
     """
-    # Create server with default settings
-    # Use port 50052 to avoid conflict with launch_server_process (port 50051)
-    port = 50052
+    # Bind an OS-assigned ephemeral port (":0"); a fixed port is not portable
+    # (Windows refuses to rebind a recently-used port, and it can collide with
+    # the session-scoped server in test_client.py).
     server = create_grpc_server(max_workers=4)
-    server.add_insecure_port(f"localhost:{port}")
-    
+    port = server.add_insecure_port("localhost:0")
+
     # Start server in a thread
     server_thread = threading.Thread(target=server.start, daemon=True)
     server_thread.start()

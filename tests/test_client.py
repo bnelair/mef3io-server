@@ -16,16 +16,18 @@ def grpc_server():
     servicer = gRPCMef3Server(file_manager)
     pb2_grpc.add_gRPCMef3ServerServicer_to_server(servicer, server)
 
-    port = 50052
-    server.add_insecure_port(f"localhost:{port}")
+    # Bind an OS-assigned ephemeral port; a fixed port is not portable (Windows
+    # refuses to rebind a recently-used port and it can collide with other
+    # test servers).
+    port = server.add_insecure_port("localhost:0")
     server.start()
     time.sleep(0.1)
-    yield
+    yield port
     server.stop(0)
 
 @pytest.fixture(scope="module")
 def client(grpc_server):
-    c = Mef3Client("localhost:50052")
+    c = Mef3Client(f"localhost:{grpc_server}")
     yield c
     c.shutdown()
 
