@@ -6,7 +6,7 @@ and the same number of operations (20 chunks) for fair comparison.
 import pytest
 import numpy as np
 import threading
-from mef_tools import MefReader
+from mef3io import MefReader
 from mef3io_server.client import Mef3Client
 
 from .benchmark_data import get_workload, server_kwargs

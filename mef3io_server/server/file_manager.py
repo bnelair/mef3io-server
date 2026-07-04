@@ -5,7 +5,7 @@ import mef3io_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
 from mef3io_server.server.tile_cache import TileCache, CACHE_DTYPE
 from mef3io_server.server.reader_pool import ReaderProcessPool
-from mef_tools import MefReader
+from mef3io import MefReader
 from mef3io_server.server.log_manager import get_logger
 import os
 
@@ -53,8 +53,8 @@ class FileManager:
                 (``read_signal_range``) access path.
             tile_cache_bytes (int): Global byte budget for the tile cache (float32 tiles).
             use_process_pool (bool): Decode cold reads / prefetch in worker
-                processes for real parallel MEF3 decode (pymef is GIL-bound). When
-                ``False``, falls back to the in-process thread path.
+                processes for parallel MEF3 decode (one mef3io session per
+                worker). When ``False``, falls back to the in-process thread path.
             reader_processes (int or None): Total decode worker processes. ``None``
                 auto-selects ``cpu_count - 1``.
             prefetch_processes (int or None): Of the total, how many form the
@@ -541,13 +541,23 @@ class FileManager:
 
     # --- Graceful shutdown of all background resources ---
     def shutdown(self):
-        """Shuts down the prefetch thread pool, process pools, and TTL sweeper."""
+        """Shuts down the prefetch thread pool, process pools, TTL sweeper, and
+        closes any still-open mef3io reader sessions."""
         logger.info("Shutting down FileManager background resources...")
         self._stop_sweeper.set()
-        self._prefetch_executor.shutdown(wait=False)
+        # Wait for in-flight prefetch threads: they hold reader references, and
+        # the sessions are closed right below.
+        self._prefetch_executor.shutdown(wait=True, cancel_futures=True)
         for pool in (self._fg_pool, self._bg_pool):
             if pool is not None:
                 pool.shutdown()
+        with self._lock:
+            for state in self._files.values():
+                try:
+                    state['reader'].close()
+                except Exception as e:  # noqa: BLE001 - shutdown must not fail
+                    logger.error(f"Error closing reader during shutdown: {e}")
+            self._files.clear()
 
     # ... (rest of the FileManager methods: _get_file_info_unsafe, close_file, etc. remain the same) ...
     # Make sure to also add a shutdown method.
@@ -603,7 +613,9 @@ class FileManager:
         with self._lock:
             try:
                 if file_path in self._files:
-                    # Clean up resources if necessary (e.g., rdr.close())
+                    # mef3io sessions must be closed explicitly to release the
+                    # underlying file handles.
+                    self._files[file_path]['reader'].close()
                     del self._files[file_path]
                     # Clean up in-progress tile prefetches for this file
                     self._tile_in_progress.pop(file_path, None)

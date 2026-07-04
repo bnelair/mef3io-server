@@ -1,15 +1,17 @@
 """Multi-process reader pool for parallel MEF3 decode.
 
-MEF3 decode/decompression in ``pymef`` is GIL-bound, so a thread pool gives no
-parallel decoding (measured ~1.0x). Real parallelism requires separate processes,
-each with its own ``MefReader`` session. ``FileManager`` runs two disjoint
+Decode runs in separate worker processes, each with its own ``MefReader``
+session, so decodes never contend on shared session state. (The pool predates
+``mef3io``: the legacy ``pymef`` backend was GIL-bound, so threads could not
+decode in parallel; ``mef3io`` releases the GIL during reads, but per-process
+sessions remain the isolation model here.) ``FileManager`` runs two disjoint
 instances of this pool -- a foreground lane for interactive/cold reads and a
 prefetch lane for background look-ahead -- so prefetch can never occupy a worker
 that a foreground read needs.
 
 A window is split **by channel** across workers (MEF3 stores channels separately,
 so this is embarrassingly parallel). Each worker process lazily opens and reuses
-its own ``MefReader`` per file (one pymef session per process). Results are
+its own ``MefReader`` per file (one mef3io session per process). Results are
 returned as ``float32`` arrays.
 """
 import multiprocessing as mp
@@ -17,11 +19,11 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
-from mef_tools import MefReader
+from mef3io import MefReader
 
 # Per-worker-process cache of open readers: {actual_path: MefReader}. Each worker
-# process keeps its OWN readers -- a separate pymef session is what makes decode
-# genuinely parallel across processes.
+# process keeps its OWN readers -- a separate mef3io session per process keeps
+# decode fully independent across workers.
 _WORKER_READERS = {}
 
 

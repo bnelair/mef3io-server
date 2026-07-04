@@ -1,0 +1,78 @@
+site_name: mef3io-server
+site_description: A gRPC server for efficient, concurrent access to MEF3 files — channels-and-time oriented, with a shared tile cache and parallel decode.
+site_url: https://bnelair.github.io/mef3io-server/
+repo_url: https://github.com/bnelair/mef3io-server
+repo_name: bnelair/mef3io-server
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle: { icon: material/brightness-4, name: Light mode }
+
+markdown_extensions:
+  - admonition
+  - attr_list        # enables the { .md-button } link attributes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_options:
+              # These docstrings describe dict returns by listing keys under a
+              # single "Returns:" section; don't warn about each as an untyped
+              # return value.
+              returns_multiple_items: false
+              returns_named_value: false
+            show_source: false
+            show_root_heading: true
+            heading_level: 2
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            merge_init_into_class: true
+            filters: ["!^_"]
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Install: install.md
+      - Quick start: quickstart.md
+  - Guides:
+      - Python client: guides/client.md
+      - Configuration: guides/configuration.md
+      - Docker deployment: guides/docker.md
+  - API reference:
+      - Client: api/client.md
+      - Server: api/server.md
+      - File manager: api/file_manager.md
+      - Tile cache: api/tile_cache.md
+      - Reader pool: api/reader_pool.md
+      - Config manager: api/config_manager.md
+      - Log manager: api/log_manager.md
+  - Reference:
+      - gRPC API: reference/grpc_api.md
+      - Performance & benchmarks: reference/benchmarks.md
+  - Development:
+      - Contributing: contributing.md

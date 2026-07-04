@@ -32,8 +32,10 @@ naive single-pass case and misleading for the cases the server actually targets.
 The **native `MefReader` in a loop is the baseline in all three** — it is exactly
 what use case B does N times and what use case C does once.
 
-> A note on parallelism: MEF3 decode in `pymef` is **GIL-bound**, so *thread*
-> prefetch does not decode in parallel. The server therefore **decodes in worker
+> A note on parallelism: these numbers were measured with the legacy `pymef`
+> backend, whose MEF3 decode is **GIL-bound**, so *thread* prefetch did not decode
+> in parallel (the current `mef3io` backend releases the GIL during reads).
+> The server therefore **decodes in worker
 > processes** (`ReaderProcessPool`, two disjoint lanes: a reserved foreground lane
 > + a background prefetch lane), which **is now the default** (`USE_PROCESS_POOL=1`).
 > This adds genuine parallel decode on top of the two older wins — *hiding* decode
@@ -329,8 +331,9 @@ Map every number back to a use case (A/B/C above):
 - **gRPC no-prefetch** pays transport per window with no overlap and no reuse —
   expected to be the slowest; this is the classic "server slower than MefReader"
   case, kept as a reference point.
-- MEF3 decode is **GIL-bound** in `pymef`, so thread prefetch cannot decode in
-  parallel. The server therefore decodes in **worker processes** by default
+- MEF3 decode was **GIL-bound** in the legacy `pymef` backend used for these
+  measurements, so thread prefetch could not decode in parallel (the current
+  `mef3io` backend releases the GIL). The server decodes in **worker processes** by default
   (`ReaderProcessPool`); this is what lets prefetch overlap *parallel* decode with
   compute and is what tips use case C. `USE_PROCESS_POOL=0` reverts to the
   in-process thread path (hides latency + reuses cache only, no parallel decode).

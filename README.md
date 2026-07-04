@@ -5,7 +5,7 @@ A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysio
 ## Features
 - gRPC API for remote MEF3 file access, oriented purely in **channels and time**
 - Shared, byte-budgeted per-channel **tile cache** with an idle TTL
-- **Parallel MEF3 decode** across worker processes (pymef decode is GIL-bound)
+- **Parallel MEF3 decode** across worker processes, backed by [mef3io](https://github.com/bnelair/mef3io) (one session per worker)
 - Configurable **window look-ahead/behind prefetch** for smooth paging
 - Configurable via environment variables or Docker
 - Ready for deployment in Docker and CI/CD pipelines
@@ -105,8 +105,7 @@ python -m mef3io_server.server
   session (e.g. a detector that moved on) is freed even before the byte budget is
   hit. `0` disables idle expiry (default: 1800 = 30 min)
 
-Parallel decode (pymef MEF3 decode is GIL-bound, so real parallelism needs
-separate worker processes — see below):
+Parallel decode (each worker process holds its own mef3io session — see below):
 - `USE_PROCESS_POOL`: Decode cold reads / prefetch in worker processes (default: `true`)
 - `READER_PROCESSES`: Total decode worker processes (default: auto = `cpu_count - 1`)
 - `PREFETCH_PROCESSES`: How many of those form the background prefetch lane; the
@@ -316,33 +315,38 @@ pytest -m benchmark --benchmark-json=results.json   # setup is included under "e
 You can use any linter compatible with Google-style docstrings (e.g., `pylint`, `flake8`).
 
 ### Building Documentation
-This project uses Sphinx with Google-style docstrings for API documentation.
+This project uses [MkDocs](https://www.mkdocs.org/) with the
+[Material theme](https://squidfunk.github.io/mkdocs-material/) and
+[mkdocstrings](https://mkdocstrings.github.io/) (Google-style docstrings) for
+API documentation — matching the [mef3io](https://github.com/bnelair/mef3io) docs.
 
-To build the documentation locally:
+To build or preview the documentation locally:
 ```sh
 # Install documentation dependencies
 pip install -e ".[docs]"
 
-# Build HTML documentation
-cd docs
-make html
+# Live preview at http://127.0.0.1:8000
+mkdocs serve
 
-# Or use sphinx-build directly
-sphinx-build -b html docs/ docs/_build/html
+# Or build the static site into ./site
+mkdocs build --strict
 ```
-
-The built documentation will be available at `docs/_build/html/index.html`.
 
 #### Online Documentation
 Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch. The documentation is available at: https://bnelair.github.io/mef3io-server/
 
-The deployment uses GitHub Actions (see `.github/workflows/docs.yml`) and publishes to the `gh-pages` branch.
+The deployment uses GitHub Actions (see `.github/workflows/docs.yml`).
+
+## Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull-request
+guidelines, and [SECURITY.md](SECURITY.md) for reporting security issues.
 
 ## CI/CD
 Documentation is automatically built and deployed to GitHub Pages on every push to the `main` branch via GitHub Actions (see `.github/workflows/docs.yml`).
 
 ## License
-Specify your license here.
+Licensed under the [Apache License 2.0](LICENSE).
 
 ## Authors
-See Git history for contributors.
+Developed at the Mayo Clinic BNEL (Bioelectronics Neurophysiology and
+Engineering Lab). See the Git history for contributors.

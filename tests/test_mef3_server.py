@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from concurrent import futures
 
-from mef_tools import MefReader
+from mef3io import MefReader
 
 # Import your server implementation and generated protobuf files
 

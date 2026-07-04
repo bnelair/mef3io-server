@@ -45,8 +45,7 @@ benchmark_data/
 # Raw pytest-benchmark JSON (intermediate; the rendered benchmark_report.md is kept)
 benchmark_results/benchmark.json
 
-# Sphinx documentation
-docs/_build/
-docs/_autosummary/
+# MkDocs build output
+site/
 /demo/big_data_demo.mefd/
 /demo/test_file.mefd/
