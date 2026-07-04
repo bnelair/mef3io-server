@@ -559,8 +559,6 @@ class FileManager:
                     logger.error(f"Error closing reader during shutdown: {e}")
             self._files.clear()
 
-    # ... (rest of the FileManager methods: _get_file_info_unsafe, close_file, etc. remain the same) ...
-    # Make sure to also add a shutdown method.
     def _get_file_info_unsafe(self, file_path):
         """Internal helper to get file info. Assumes lock is already held.
 
