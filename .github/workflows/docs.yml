@@ -42,16 +42,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[docs]"
 
-      - name: Build documentation
-        run: |
-          cd docs
-          # Keep doctrees out of _build/html so they aren't published to Pages.
-          sphinx-build -b html -d _build/doctrees . _build/html
+      - name: Build documentation (mkdocs + mkdocstrings)
+        run: mkdocs build --strict
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'docs/_build/html'
+          path: 'site'
 
   deploy:
     environment:

@@ -5,7 +5,7 @@ import os
 import time
 
 from mef3io_server.server.file_manager import FileManager
-from mef_tools import MefReader
+from mef3io import MefReader
 import mef3io_server.protobufs.gRPCMef3Server_pb2 as pb2
 
 from .conftest import mef3_file, record_benchmark_setup

@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+title: "mef3io-server: a gRPC server for concurrent, channels-and-time access to MEF 3.0 files"
+message: "If you use mef3io-server in research, please cite it."
+type: software
+authors:
+  - name: "Mayo Clinic — Bioelectronics Neurophysiology and Engineering Lab (BNEL)"
+repository-code: "https://github.com/bnelair/mef3io-server"
+url: "https://bnelair.github.io/mef3io-server/"
+license: Apache-2.0
+keywords:
+  - MEF
+  - electrophysiology
+  - iEEG
+  - time series
+  - gRPC
+  - streaming

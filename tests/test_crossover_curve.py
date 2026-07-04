@@ -25,7 +25,7 @@ import time
 import datetime
 
 import pytest
-from mef_tools import MefReader
+from mef3io import MefReader
 
 from mef3io_server.client import Mef3Client
 

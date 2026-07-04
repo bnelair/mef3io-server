@@ -3,7 +3,7 @@ import time
 
 import numpy as np
 import pytest
-from mef_tools import MefReader
+from mef3io import MefReader
 
 from mef3io_server.server.reader_pool import ReaderProcessPool, _worker_read
 from .benchmark_data import load_benchmark_config, get_workload

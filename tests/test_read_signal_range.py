@@ -1,7 +1,7 @@
 """Correctness tests for FileManager.read_signal_range (timestamp-based access)."""
 import numpy as np
 import pytest
-from mef_tools import MefReader
+from mef3io import MefReader
 
 from mef3io_server.server.file_manager import FileManager
 from .conftest import mef3_file  # noqa: F401 - pytest fixture

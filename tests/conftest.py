@@ -1,4 +1,4 @@
-from mef_tools import MefWriter
+from mef3io import MefWriter
 
 import time
 
@@ -37,6 +37,7 @@ def mef3_file():
         for ch in channel_names:
             x = np.random.randn(fs*duration_s)
             wrt.write_data(x, ch, start_uutc=start_uutc, sampling_freq=fs, precision=3, discont_handler=False)
+        wrt.close()  # mef3io writers must be closed explicitly to finalize the session
 
         yield file_path
 
@@ -145,8 +146,9 @@ def functional_test_mef3_file(tmp_path_factory):
         chname = f"chan_{idx+1:03d}"
         x = np.random.randn(MEF3_FUNCTIONAL_TEST_DURATION_S * MEF3_TEST_FS)
         wrt.write_data(x, chname, s, MEF3_TEST_FS, precision=MEF3_TEST_PRECISION)
+    wrt.close()  # mef3io writers must be closed explicitly to finalize the session
     print("[Functional test MEF3 file created successfully]")
-    
+
     return pth_mef
 
 
@@ -198,6 +200,9 @@ def create_grpc_server(max_workers=4, **fm_kwargs):
     file_manager = FileManager(max_workers=max_workers, **fm_kwargs)
     servicer = gRPCMef3Server(file_manager)
     pb2_grpc.add_gRPCMef3ServerServicer_to_server(servicer, server)
+    # Kept for teardown: shutting the manager down closes any mef3io reader
+    # sessions that tests left open on the server.
+    server.file_manager = file_manager
     return server
 
 @pytest.fixture(scope="function")
@@ -231,6 +236,7 @@ def grpc_server_factory():
     for server in servers:
         print(f"\nStopping test gRPC server...")
         server.stop(0)
+        server.file_manager.shutdown()
 
     # Add a small delay to ensure ports are released
     if servers:
@@ -255,9 +261,10 @@ def shared_test_server():
     time.sleep(0.5)  # Wait for server to start
     
     yield port
-    
+
     # Stop server
     server.stop(0)
+    server.file_manager.shutdown()
     time.sleep(0.2)
 
 

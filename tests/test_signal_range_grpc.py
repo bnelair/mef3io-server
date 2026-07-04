@@ -1,7 +1,7 @@
 """End-to-end gRPC tests for timestamp-based access (GetSignalRange)."""
 import numpy as np
 import pytest
-from mef_tools import MefReader
+from mef3io import MefReader
 
 from mef3io_server.client import Mef3Client
 from .conftest import mef3_file  # noqa: F401 - pytest fixture

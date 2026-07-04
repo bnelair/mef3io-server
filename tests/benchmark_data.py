@@ -18,7 +18,7 @@ import logging
 import datetime
 
 import numpy as np
-from mef_tools import MefWriter, MefReader
+from mef3io import MefWriter, MefReader
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ def _is_valid_cache(mefd_path, config):
     if meta.get("identity") != _identity(config):
         return False
     try:
-        MefReader(mefd_path)  # sanity check: the file is actually readable
+        MefReader(mefd_path).close()  # sanity check: the file is actually readable
     except Exception as e:  # noqa: BLE001 - any reader failure means regenerate
         logger.warning("Cached benchmark file failed to open, regenerating: %s", e)
         return False
@@ -284,7 +284,7 @@ def _generate(mefd_path, config):
         chname = f"chan_{idx + 1:03d}"
         x = rng.standard_normal(n_samples)
         wrt.write_data(x, chname, start_uutc, fs, precision=precision)
-    del wrt  # MefWriter flushes/closes on GC (no explicit close method)
+    wrt.close()  # mef3io writers must be closed explicitly to finalize the session
 
     meta = {
         "generator_version": GENERATOR_VERSION,
