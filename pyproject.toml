@@ -10,7 +10,9 @@ authors = [
     { name = "Filip Mivalt", email = "mivalt.filip@mayo.edu" }
 ]
 readme = "README.md"
-license = { text = "Apache-2.0" }
+# PEP 639 SPDX expression (required as a string by setuptools >= 77; the older
+# table form { text = ... } is rejected there).
+license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [

@@ -609,29 +609,34 @@ class FileManager:
             FileInfoResponse: Protobuf response indicating the file is closed.
         """
         with self._lock:
-            try:
-                if file_path in self._files:
-                    # mef3io sessions must be closed explicitly to release the
-                    # underlying file handles.
-                    self._files[file_path]['reader'].close()
-                    del self._files[file_path]
-                    # Clean up in-progress tile prefetches for this file
-                    self._tile_in_progress.pop(file_path, None)
-                    # Purge this file's tiles from the shared cache.
-                    self._tile_cache.evict_matching(lambda k: k[0] == file_path)
-                    logger.info(f"Closed and removed file: {file_path}")
+            # Drop the file from tracked state first, then release its resources.
+            # A reader.close() failure must not leave the file half-open in
+            # self._files while we report it closed -- the file is gone either way.
+            state = self._files.pop(file_path, None)
+            if state is None:
                 return gRPCMef3Server_pb2.FileInfoResponse(
                     file_path=file_path,
                     file_opened=False,
                     error_message=""
                 )
-            except Exception as e:
-                logger.error(f"Error closing file {file_path}: {e}")
-                return gRPCMef3Server_pb2.FileInfoResponse(
-                    file_path=file_path,
-                    file_opened=False,
-                    error_message=str(e)
-                )
+            # Clean up in-progress tile prefetches and purge this file's tiles
+            # from the shared cache.
+            self._tile_in_progress.pop(file_path, None)
+            self._tile_cache.evict_matching(lambda k: k[0] == file_path)
+            # mef3io sessions must be closed explicitly to release the underlying
+            # file handles; a failure here is logged but does not un-close the file.
+            error_message = ""
+            try:
+                state['reader'].close()
+            except Exception as e:  # noqa: BLE001 - the file is already removed
+                logger.error(f"Error closing reader for {file_path}: {e}")
+                error_message = str(e)
+            logger.info(f"Closed and removed file: {file_path}")
+            return gRPCMef3Server_pb2.FileInfoResponse(
+                file_path=file_path,
+                file_opened=False,
+                error_message=error_message
+            )
 
     def get_file_info(self, file_path):
         """Gets information about an open MEF file.
