@@ -395,7 +395,7 @@
             "extra_info": {
                 "access_pattern": "FileManager read_signal_range WITH prefetch (in-process)",
                 "file": "test_data.mefd",
-                "file_path": "/var/folders/6d/gghpm1sn5mv154tm3z8tjh840000gr/T/tmp5biacp52/test_data.mefd",
+                "file_path": "test_data.mefd",
                 "total_channels_in_file": 64,
                 "channels_under_test": 64,
                 "sampling_rate_hz": 256,
