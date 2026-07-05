@@ -16,6 +16,34 @@ results — lives in
 
 The **native reader in a loop is the baseline** in all three.
 
+## Latest results
+
+From the bundled run of 2026-07-05 (Apple M3 Max, 14 CPUs; 128 ch, 256 Hz,
+21600 s file, 20 × 60 s windows). Results are machine-specific — regenerate for
+your host with `./run_benchmarks.sh report`. The full per-scenario report lives
+in
+[`benchmark_results/benchmark_report.md`](https://github.com/bnelair/mef3io-server/blob/main/benchmark_results/benchmark_report.md).
+
+| Use case | Scenario | Mean (s) | Speedup vs native |
+| --- | --- | ---: | ---: |
+| A | gRPC + prefetch | 7.27 | **1.02x** |
+| A | Native local (baseline) | 7.43 | — |
+| A | gRPC, no prefetch | 7.50 | 0.99x |
+| B | gRPC shared tile cache | 3.08 | **2.04x** |
+| B | Native local (baseline) | 6.28 | — |
+| C | Native local (baseline) | 1.64 | — |
+| C | gRPC, no prefetch | 1.76 | 0.93x |
+| C | gRPC + prefetch | 2.02 | 0.81x |
+
+!!! warning "Use case C: trust the crossover sweep, not the bundled single shot"
+    The use-case-C rows above are single-shot (`rounds=1`) and include one-time
+    process-pool spawn cost; when the full suite runs several servers
+    back-to-back their worker pools can oversubscribe the CPUs, so this figure
+    can swing ~2x run-to-run and even flip sign. The isolated crossover sweep
+    (fresh server per level) is the authoritative use-case-C result — see the
+    crossover-curve section of
+    [`BENCHMARKS.md`](https://github.com/bnelair/mef3io-server/blob/main/BENCHMARKS.md).
+
 ## Running the benchmarks
 
 Benchmarks generate large data and run a real server, so they are excluded from

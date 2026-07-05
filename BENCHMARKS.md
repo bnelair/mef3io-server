@@ -68,18 +68,23 @@ native-local baseline** for that use case. It opens with a summary table:
 
 | Use case | Scenario | Mean (s) | Speedup vs native |
 | --- | --- | ---: | ---: |
-| B | gRPC shared tile cache | ~2.7–4.4 | **2.2–2.8x** |
-| B | Native local (baseline) | ~7.7–9.6 | — |
-| C | Native local (baseline) | ~2.0 | — |
+| B | gRPC shared tile cache | 3.08 | **2.04x** |
+| B | Native local (baseline) | 6.28 | — |
+| C | Native local (baseline) | 1.64 | — |
+| C | gRPC ± prefetch (bundled single shot) | 1.76–2.02 | 0.81–0.93x |
 | C | gRPC + prefetch (isolated crossover) | ~1.5 | **~1.2–1.34x** |
-| A | Native local (baseline) | ~8.5 | — |
-| A | gRPC ± prefetch | ~8.7 | ~0.99–1.06x |
+| A | gRPC + prefetch | 7.27 | **1.02x** |
+| A | Native local (baseline) | 7.43 | — |
+| A | gRPC, no prefetch | 7.50 | 0.99x |
 
-(Numbers above are illustrative runs on an Apple M3 Max / 14 CPUs — not canonical;
-regenerate them for your host.) The takeaways match the use-case model: **B wins
-big** (decode once, serve many); **A is a wash** (think-time dominates and the
-cache/prefetch just keeps pace); **C now favours the server** at 64 ch once decode
-runs in parallel across processes — see the crossover curve below.
+(Numbers above are from a bundled run on an Apple M3 Max / 14 CPUs with a
+128 ch / 256 Hz / 21600 s dataset — not canonical; regenerate them for your
+host.) The takeaways match the use-case model: **B wins big** (decode once,
+serve many); **A is a wash** (think-time dominates and the cache/prefetch just
+keeps pace); **C favours the server** at high channel counts once decode runs
+in parallel across processes — but only in the isolated crossover sweep; the
+bundled single shot is high-variance (see the warning below) and can come out
+slower, as it did in this run.
 
 > ⚠️ The single-shot `test_processing_*` benchmarks (use case C, `rounds=1`) are
 > **high variance**: they include one-time process-pool spawn cost, and when the
