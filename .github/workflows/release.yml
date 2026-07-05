@@ -15,11 +15,10 @@ on:
         description: "Publish the built package to PyPI"
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   release:
@@ -124,6 +123,11 @@ jobs:
       - name: Publish to PyPI
         if: ${{ inputs.publish_to_pypi }}
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # API-token auth (repo secret), not OIDC trusted publishing.
+          password: ${{ secrets.PYPI_TOKEN_GENERAL }}
+          # Attestations require trusted publishing; disable for token auth.
+          attestations: false
 
   # Build and push the Docker image for the freshly-created release tag.
   # Calling the reusable workflow keeps the image-build logic in one place.

@@ -16,6 +16,13 @@ A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysio
 - Python 3.10+ (3.12 recommended)
 - (Optional) Docker for containerized deployment
 
+### From PyPI
+Released versions are published to PyPI. This is the easiest way to get the
+Python client (and the server) into an environment:
+```sh
+pip install mef3io-server
+```
+
 ### Local Setup
 Clone the repository and install the package (dependencies come from `pyproject.toml`):
 ```sh
