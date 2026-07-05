@@ -46,7 +46,7 @@
             "extra_info": {
                 "access_pattern": "direct MefReader (baseline, no server)",
                 "file": "bench_128ch_256hz_21600s_p2.mefd",
-                "file_path": "/Users/mivalt.filip/PycharmProjects/mef3io-server/benchmark_data/bench_128ch_256hz_21600s_p2.mefd",
+                "file_path": "benchmark_data/bench_128ch_256hz_21600s_p2.mefd",
                 "total_channels_in_file": 128,
                 "channels_under_test": 128,
                 "sampling_rate_hz": 256,
