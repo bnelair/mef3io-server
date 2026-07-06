@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mef3io-server"
-version = "3.0.0"
+version = "3.0.1"
 description = "A gRPC server and client for efficient, concurrent access to MEF3 files."
 authors = [
     { name = "Filip Mivalt", email = "mivalt.filip@mayo.edu" }
