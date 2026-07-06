@@ -8,6 +8,15 @@
 Decode is provided by [mef3io](https://github.com/bnelair/mef3io), pulled in
 automatically as a dependency.
 
+## From PyPI
+
+Released versions are published to PyPI. This is the easiest way to get the
+Python client (and the server) into an environment:
+
+```bash
+pip install mef3io-server
+```
+
 ## From source
 
 Clone the repository and install the package (dependencies come from
