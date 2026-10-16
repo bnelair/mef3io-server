@@ -6,6 +6,9 @@ shared tile cache and parallel decode. Decode itself lives in
 [mef3io](https://github.com/bnelair/mef3io); this project is the service layer on
 top of it.
 
+Everyone taking part is expected to follow our
+[code of conduct](CODE_OF_CONDUCT.md).
+
 ## Ways to help
 
 - **Report a bug** or **request a feature** via
