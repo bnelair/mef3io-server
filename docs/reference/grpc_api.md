@@ -13,7 +13,7 @@ grid and no server-side channel selection; each request is self-contained.
 | `GetSignalRange` | `get_signal_range(file_path, channels, start_uutc, end_uutc)` | Read any channels over any `[start_uutc, end_uutc)` window; streams `float32`. `channels=None` means all channels. |
 | `FileInfo` | `get_file_info(file_path)` | Metadata: `channel_names`, `channel_sampling_rates`, `channel_start_uutc`, `channel_end_uutc` (parallel per-channel arrays) plus the global `start_uutc` / `end_uutc` / `duration_s`. |
 | `OpenFile` | `open_file(file_path)` | Open a file and return its metadata. |
-| `CloseFile` | `close_file(file_path)` | Close a file, release its reader session, and purge its tiles from the shared cache. |
+| `CloseFile` | `close_file(file_path)` | End this client's session on the file. The reader is released, and the file's tiles purged from the shared cache, when no other client's session uses it. |
 | `ListOpenFiles` | `list_open_files()` | List the currently open files. |
 
 ## Streaming

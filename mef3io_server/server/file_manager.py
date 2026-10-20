@@ -1,5 +1,6 @@
 from concurrent import futures
 import threading
+import time
 import numpy as np
 import mef3io_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
@@ -36,13 +37,30 @@ class FileManager:
     parallel decode in worker processes and configurable window prefetch.
 
     Thread safety is ensured via a lock for all state-changing operations. Each file is managed independently.
+
+    **Sessions.** A session is one *client* using one *file*, keyed by
+    ``(client_id, file_path)``. The client id is a name tag the client library
+    sends with every call (not authentication). Opening the same file again from
+    the same client refreshes its session instead of creating another, so a tool
+    that re-opens on every page view still holds one. Everything heavy is shared
+    across sessions: one reader per file, and the tile cache, which is keyed by
+    content (file, channel, tile), never by client. A file's reader closes when
+    its last session closes or expires.
+
+    * ``client_id=""`` is the default session of clients that send no id (older
+      clients): exactly the behaviour before sessions existed, never expired.
+    * Reading needs the file open by anyone; a client that has its own session
+      refreshes it on every read (and, from step 2 on, uses its own settings).
+    * Client sessions idle longer than ``session_ttl_s`` expire; at most
+      ``max_sessions`` exist (the least recently used is closed first).
     """
 
     def __init__(self, max_workers=4,
                  tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
-                 prefetch_behind_windows=1, cache_ttl_s=1800):
+                 prefetch_behind_windows=1, cache_ttl_s=1800,
+                 session_ttl_s=1800, max_sessions=1000):
         """
         Initialize the FileManager.
 
@@ -68,6 +86,10 @@ class FileManager:
                 requested window to prefetch (paging forward).
             prefetch_behind_windows (int): How many full windows *behind* the
                 requested window to prefetch (paging backward).
+            session_ttl_s (float or None): Close a client's session after this many
+                idle seconds (sessions of clients that send no id never expire).
+            max_sessions (int): Most client sessions at once; opening one more
+                closes the least recently used.
             cache_ttl_s (float or None): Discard tiles not accessed within this many
                 seconds. ``None``/``0`` disables idle expiry.
         """
@@ -107,11 +129,17 @@ class FileManager:
         # Track in-progress tile prefetches: {file_path: set((channel, block_index))}
         self._tile_in_progress = {}
 
+        # --- Sessions: (client_id, file_path) -> {'last_used': monotonic s} ---
+        self.session_ttl_s = float(session_ttl_s) if session_ttl_s and session_ttl_s > 0 else None
+        self.max_sessions = max(1, int(max_sessions))
+        self._sessions = {}
+
         # --- Background TTL sweeper: frees idle tiles even with no traffic ---
         self._stop_sweeper = threading.Event()
         self._sweeper = None
-        if self.cache_ttl_s is not None:
-            interval = max(1.0, self.cache_ttl_s / 10.0)
+        ttls = [t for t in (self.cache_ttl_s, self.session_ttl_s) if t is not None]
+        if ttls:
+            interval = max(1.0, min(ttls) / 10.0)
             self._sweeper = threading.Thread(
                 target=self._sweeper_loop, args=(interval,),
                 name='tile_cache_sweeper', daemon=True,
@@ -145,17 +173,23 @@ class FileManager:
         """Periodically discard tiles that have gone idle past the TTL."""
         while not self._stop_sweeper.wait(interval):
             try:
-                n = self._tile_cache.evict_expired()
+                if self.cache_ttl_s is not None:
+                    n = self._tile_cache.evict_expired()
+                    if n:
+                        logger.debug(f"TTL sweep evicted {n} idle tiles")
+                n = self.expire_sessions()
                 if n:
-                    logger.debug(f"TTL sweep evicted {n} idle tiles")
+                    logger.info(f"Closed {n} idle client session(s)")
             except Exception as e:  # noqa: BLE001 - sweeper must never die
                 logger.error(f"Tile cache sweeper error: {e}")
 
-    def open_file(self, file_path):
-        """Opens a MEF file and initializes its state.
+    def open_file(self, file_path, client_id=""):
+        """Opens a MEF file for one client and returns its info.
 
         Args:
             file_path (str): Path to the MEF file.
+            client_id (str): The calling client's id; ``""`` for clients that send
+                none (the behaviour before sessions existed).
 
         Returns:
             FileInfoResponse: Protobuf response with file info and open status.
@@ -169,32 +203,106 @@ class FileManager:
                 error_message=f"File does not exist: {file_path}"
             )
         with self._lock:
-            if file_path in self._files:
-                # File is already open, return info with error message
-                info = self._get_file_info_unsafe(file_path)
+            already_open = file_path in self._files
+            if not already_open:
+                try:
+                    rdr = MefReader(actual_path)
+                    self._files[file_path] = {
+                        'reader': rdr,
+                        # Docker-mapped on-disk path; handed to worker processes so
+                        # they can open their own MefReader for parallel decode.
+                        'actual_path': actual_path,
+                        # Per-channel tile metadata (tiles themselves live in the
+                        # shared self._tile_cache)
+                        'tile_meta': {},  # channel -> (fs, channel_start_uutc, samples_per_tile)
+                    }
+                    logger.info(f"Opened file: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error opening file {file_path}: {e}")
+                    return gRPCMef3Server_pb2.FileInfoResponse(
+                        file_path=str(file_path),
+                        file_opened=False,
+                        error_message=str(e)
+                    )
+            evicted = self._open_session_unsafe(client_id, file_path)
+            info = self._get_file_info_unsafe(file_path)
+            if already_open and not client_id:
+                # Unchanged for clients that send no id: a second open says so.
                 info.error_message = f"File already open: {file_path}"
-                return info
-            try:
-                rdr = MefReader(actual_path)
-                self._files[file_path] = {
-                    'reader': rdr,
-                    # Docker-mapped on-disk path; handed to worker processes so
-                    # they can open their own MefReader for parallel decode.
-                    'actual_path': actual_path,
-                    # Per-channel tile metadata (tiles themselves live in the
-                    # shared self._tile_cache)
-                    'tile_meta': {},  # channel -> (fs, channel_start_uutc, samples_per_tile)
-                }
-                logger.info(f"Opened file: {file_path}")
-            except Exception as e:
-                logger.error(f"Error opening file {file_path}: {e}")
-                return gRPCMef3Server_pb2.FileInfoResponse(
-                    file_path=str(file_path),
-                    file_opened=False,
-                    error_message=str(e)
-                )
+        for key, seen in evicted:
+            self._close_session(*key, only_if_used_at=seen)
+        return info
 
-            return self._get_file_info_unsafe(file_path)
+    # ------------------------------------------------------------------
+    # Sessions: (client_id, file_path)
+    # ------------------------------------------------------------------
+    def _open_session_unsafe(self, client_id, file_path):
+        """Create or refresh a session; return the sessions to close for the cap.
+
+        Assumes ``self._lock`` is held. The evicted sessions are closed by the
+        caller after releasing the lock (closing a file may close its reader).
+        """
+        key = (client_id, file_path)
+        session = self._sessions.get(key)
+        if session is None:
+            session = self._sessions[key] = {}
+            if client_id:
+                logger.info(f"New session for a client on {file_path}")
+        session['last_used'] = time.monotonic()
+        clients = [k for k in self._sessions if k[0]]
+        excess = len(clients) - self.max_sessions
+        if excess <= 0:
+            return []
+        clients.sort(key=lambda k: self._sessions[k]['last_used'])
+        return [(k, self._sessions[k]['last_used']) for k in clients if k != key][:excess]
+
+    def _touch_session_unsafe(self, client_id, file_path):
+        session = self._sessions.get((client_id, file_path))
+        if session is not None:
+            session['last_used'] = time.monotonic()
+        return session
+
+    def _close_session(self, client_id, file_path, only_if_used_at=None):
+        """Remove one session; close the file's reader when it was the last.
+
+        ``only_if_used_at``: the session's ``last_used`` when it was chosen to
+        close (expiry, the cap). Chosen under the lock but closed after it was
+        released, a session can be re-opened or read in between; it is then
+        left alone, rather than closing a session (and file) just used.
+        """
+        with self._lock:
+            session = self._sessions.get((client_id, file_path))
+            if session is None:
+                return None
+            if only_if_used_at is not None and session['last_used'] != only_if_used_at:
+                return None
+            self._sessions.pop((client_id, file_path), None)
+            if any(k[1] == file_path for k in self._sessions):
+                return None
+        return self._release_file(file_path)
+
+    def expire_sessions(self, now=None):
+        """Close client sessions idle longer than ``session_ttl_s``; return how many."""
+        if self.session_ttl_s is None:
+            return 0
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            idle = [(k, v['last_used']) for k, v in self._sessions.items()
+                    if k[0] and now - v['last_used'] > self.session_ttl_s]
+        closed = 0
+        for key, seen in idle:
+            with self._lock:
+                still_idle = (key in self._sessions
+                              and self._sessions[key]['last_used'] == seen)
+            if still_idle:
+                self._close_session(*key, only_if_used_at=seen)
+                closed += 1
+        return closed
+
+    def session_count(self):
+        """How many sessions exist (clients' and the default ones)."""
+        with self._lock:
+            return len(self._sessions)
 
     # ------------------------------------------------------------------
     # Timestamp-based access (tile cache): read any channels over any [t1, t2]
@@ -271,7 +379,8 @@ class FileManager:
                 if s is not None:
                     s.discard((channel, block_index))
 
-    def read_signal_range(self, file_path, channels, start_uutc, end_uutc, prefetch=True):
+    def read_signal_range(self, file_path, channels, start_uutc, end_uutc, prefetch=True,
+                          client_id=""):
         """Read arbitrary channels over an arbitrary ``[start_uutc, end_uutc)`` window.
 
         Data is served from the per-channel tile cache, reading only the tiles that
@@ -285,6 +394,9 @@ class FileManager:
             start_uutc (int): Inclusive window start in microseconds (uUTC).
             end_uutc (int): Exclusive window end in microseconds (uUTC).
             prefetch (bool): Whether to prefetch neighboring tiles.
+            client_id (str): The calling client; its session (if it opened the
+                file) is kept alive by the read. The file only has to be open
+                by someone: tools may share a file one of them opened.
 
         Returns:
             dict: A dict with keys ``array`` (``np.ndarray`` of shape
@@ -298,6 +410,7 @@ class FileManager:
         with self._lock:
             if file_path not in self._files:
                 raise ValueError(f"File not open: {file_path}")
+            self._touch_session_unsafe(client_id, file_path)
             state = self._files[file_path]
             rdr = state['reader']
             actual_path = state['actual_path']
@@ -499,14 +612,15 @@ class FileManager:
                 if s is not None:
                     s.discard((channel, block_index))
 
-    def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc):
+    def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id=""):
         """Yield a ``[start_uutc, end_uutc)`` read as ~2.5MB streamed SignalChunks.
 
         Wraps :meth:`read_signal_range` for the gRPC ``GetSignalRange`` RPC. On any
         error a single SignalChunk carrying ``error_message`` is yielded.
         """
         try:
-            result = self.read_signal_range(file_path, list(channel_names), start_uutc, end_uutc)
+            result = self.read_signal_range(file_path, list(channel_names), start_uutc, end_uutc,
+                                            client_id=client_id)
         except Exception as e:
             logger.error(f"Error in read_signal_range for {file_path}: {e}")
             yield gRPCMef3Server_pb2.SignalChunk(file_path=file_path, error_message=str(e))
@@ -558,6 +672,7 @@ class FileManager:
                 except Exception as e:  # noqa: BLE001 - shutdown must not fail
                     logger.error(f"Error closing reader during shutdown: {e}")
             self._files.clear()
+            self._sessions.clear()
 
     def _get_file_info_unsafe(self, file_path):
         """Internal helper to get file info. Assumes lock is already held.
@@ -599,8 +714,31 @@ class FileManager:
             channel_end_uutc=ch_ends,
         )
 
-    def close_file(self, file_path):
-        """Closes an open MEF file and cleans up its resources.
+    def close_file(self, file_path, client_id=""):
+        """Close one client's session on a file.
+
+        The file's reader (and its cached tiles) are released only when no
+        other session uses the file. For clients that send no id this is the
+        behaviour before sessions existed.
+
+        Args:
+            file_path (str): Path to the MEF file.
+            client_id (str): The calling client's id (``""``: none sent).
+
+        Returns:
+            FileInfoResponse: ``file_opened`` says whether the file is still open
+            (for other sessions).
+        """
+        with self._lock:
+            self._sessions.pop((client_id, file_path), None)
+            others = any(k[1] == file_path for k in self._sessions)
+            if others:
+                return gRPCMef3Server_pb2.FileInfoResponse(
+                    file_path=file_path, file_opened=True, error_message="")
+        return self._release_file(file_path)
+
+    def _release_file(self, file_path):
+        """Close a file's reader and drop its tiles (its last session is gone).
 
         Args:
             file_path (str): Path to the MEF file.
@@ -609,6 +747,11 @@ class FileManager:
             FileInfoResponse: Protobuf response indicating the file is closed.
         """
         with self._lock:
+            # Re-checked under the lock: a session may have opened the file again
+            # between its last session closing and this call.
+            if any(k[1] == file_path for k in self._sessions):
+                return gRPCMef3Server_pb2.FileInfoResponse(
+                    file_path=file_path, file_opened=True, error_message="")
             # Drop the file from tracked state first, then release its resources.
             # A reader.close() failure must not leave the file half-open in
             # self._files while we report it closed -- the file is gone either way.

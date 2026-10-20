@@ -1,3 +1,5 @@
+import uuid
+
 import grpc
 import numpy as np
 
@@ -24,15 +26,34 @@ class Mef3Client:
                                        info["start_uutc"],
                                        info["start_uutc"] + 60_000_000)
         client.shutdown()
+
+    **Sessions.** Each client sends a ``client_id`` with every call (a random
+    one unless you choose it). The server keeps one session per client and
+    file: opening the same file again reuses it, and closing it does not affect
+    other clients reading the same file. The id is a name tag, not
+    authentication: a web app serving several users can pass one per user.
     """
 
-    def __init__(self, address="localhost:50052"):
+    #: gRPC metadata key carrying the client id (the server reads the same key).
+    CLIENT_ID_KEY = "x-mef3io-client-id"
+
+    def __init__(self, address="localhost:50052", client_id=None):
         """
         Initialize the Mef3Client and connect to the gRPC server.
 
         Args:
             address (str): Address of the gRPC server (default: "localhost:50052").
+            client_id (str or None): This client's id, up to 128 printable
+                characters. ``None`` (default) makes a random one, so each
+                client object has its own sessions.
         """
+        if client_id is None:
+            client_id = uuid.uuid4().hex
+        if not isinstance(client_id, str) or not (0 < len(client_id) <= 128) \
+                or not client_id.isprintable():
+            raise ValueError("client_id must be 1-128 printable characters")
+        self.client_id = client_id
+        self._metadata = ((self.CLIENT_ID_KEY, client_id),)
         self.channel = grpc.insecure_channel(address)
         self.stub = pb2_grpc.gRPCMef3ServerStub(self.channel)
 
@@ -45,7 +66,7 @@ class Mef3Client:
         Returns:
             dict: File info including file_path, file_opened, number_of_channels, channel_names, etc.
         """
-        resp = self.stub.OpenFile(pb2.OpenFileRequest(file_path=file_path))
+        resp = self.stub.OpenFile(pb2.OpenFileRequest(file_path=file_path), metadata=self._metadata)
         return self._file_info_to_dict(resp)
 
     @staticmethod
@@ -79,7 +100,7 @@ class Mef3Client:
         Returns:
             dict: Contains file_path and file_opened status.
         """
-        resp = self.stub.CloseFile(pb2.FileInfoRequest(file_path=file_path))
+        resp = self.stub.CloseFile(pb2.FileInfoRequest(file_path=file_path), metadata=self._metadata)
         return {
             "file_path": resp.file_path,
             "file_opened": resp.file_opened,
@@ -96,7 +117,7 @@ class Mef3Client:
             ``channel_start_uutc`` and ``channel_end_uutc`` (parallel per-channel
             lists), plus the global ``start_uutc``/``end_uutc``/``duration_s``.
         """
-        resp = self.stub.FileInfo(pb2.FileInfoRequest(file_path=file_path))
+        resp = self.stub.FileInfo(pb2.FileInfoRequest(file_path=file_path), metadata=self._metadata)
         return self._file_info_to_dict(resp)
 
     def get_signal_range(self, file_path, channels, start_uutc, end_uutc):
@@ -135,7 +156,7 @@ class Mef3Client:
         got_start = None
         got_end = None
         error_message = None
-        for chunk in self.stub.GetSignalRange(req):
+        for chunk in self.stub.GetSignalRange(req, metadata=self._metadata):
             if chunk.error_message:
                 # Any error invalidates the whole read: discard partial chunks and
                 # return array=None so callers can't mistake a truncated read for
@@ -187,7 +208,7 @@ class Mef3Client:
         Returns:
             list: List of file paths for open files.
         """
-        resp = self.stub.ListOpenFiles(pb2.ListOpenFilesRequest())
+        resp = self.stub.ListOpenFiles(pb2.ListOpenFilesRequest(), metadata=self._metadata)
         return list(resp.file_paths)
 
     def shutdown(self):

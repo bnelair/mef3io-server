@@ -24,6 +24,27 @@ _init_logging()
 logger = get_logger("mef3io_server")
 
 
+#: gRPC metadata key carrying the client's id (a name tag, not authentication).
+CLIENT_ID_KEY = "x-mef3io-client-id"
+_MAX_CLIENT_ID = 128
+
+
+def client_id_of(context):
+    """The calling client's id from the request metadata; ``""`` when none
+    was sent (older clients), or when it is not a short printable string."""
+    try:
+        for key, value in context.invocation_metadata() or ():
+            if key == CLIENT_ID_KEY:
+                if isinstance(value, str) and 0 < len(value) <= _MAX_CLIENT_ID \
+                        and value.isprintable():
+                    return value
+                logger.warning("Ignoring a malformed client id")
+                return ""
+    except Exception:  # noqa: BLE001 - a missing context (tests) means no id
+        pass
+    return ""
+
+
 class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
     """gRPC servicer for MEF3 files. Stateless, delegates all requests to FileManager."""
 
@@ -38,7 +59,7 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
     def OpenFile(self, request, context):
         logger.info(f"Received OpenFile request for: {request.file_path}")
         try:
-            return self.manager.open_file(request.file_path)
+            return self.manager.open_file(request.file_path, client_id=client_id_of(context))
         except Exception as e:
             logger.error(f"Exception in OpenFile: {e}")
             return gRPCMef3Server_pb2.FileInfoResponse(
@@ -50,7 +71,7 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
     def CloseFile(self, request, context):
         logger.info(f"Received CloseFile request for: {request.file_path}")
         try:
-            return self.manager.close_file(request.file_path)
+            return self.manager.close_file(request.file_path, client_id=client_id_of(context))
         except Exception as e:
             logger.error(f"Exception in CloseFile: {e}")
             return gRPCMef3Server_pb2.FileInfoResponse(
@@ -82,6 +103,7 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 list(request.channel_names),
                 request.start_uutc,
                 request.end_uutc,
+                client_id=client_id_of(context),
             )
         except Exception as e:
             logger.error(f"Exception in GetSignalRange: {e}")
@@ -107,7 +129,8 @@ class gRPCMef3ServerHandler:
                  tile_duration_s=60, tile_cache_bytes=512 * 1024 * 1024,
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
-                 prefetch_behind_windows=1, cache_ttl_s=1800):
+                 prefetch_behind_windows=1, cache_ttl_s=1800,
+                 session_ttl_s=1800, max_sessions=1000):
         """Initializes the gRPC server and FileManager.
 
         Args:
@@ -122,6 +145,10 @@ class gRPCMef3ServerHandler:
             prefetch_ahead_windows (int): Windows to prefetch ahead (page forward).
             prefetch_behind_windows (int): Windows to prefetch behind (page backward).
             cache_ttl_s (float or None): Discard tiles idle longer than this.
+            session_ttl_s (float or None): Close a client's session idle longer
+                than this (clients that send no id are never expired).
+            max_sessions (int): Most client sessions at once (least recently used
+                closed first).
         """
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 
@@ -137,6 +164,8 @@ class gRPCMef3ServerHandler:
             prefetch_ahead_windows=prefetch_ahead_windows,
             prefetch_behind_windows=prefetch_behind_windows,
             cache_ttl_s=cache_ttl_s,
+            session_ttl_s=session_ttl_s,
+            max_sessions=max_sessions,
         )
 
         gRPCMef3Server_pb2_grpc.add_gRPCMef3ServerServicer_to_server(

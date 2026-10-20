@@ -37,6 +37,8 @@ def main():
     prefetch_ahead_windows = int(os.environ.get("PREFETCH_AHEAD_WINDOWS", 1))
     prefetch_behind_windows = int(os.environ.get("PREFETCH_BEHIND_WINDOWS", 1))
     cache_ttl_s = float(os.environ.get("CACHE_TTL_S", 1800))
+    session_ttl_s = float(os.environ.get("SESSION_TTL_S", 1800))
+    max_sessions = int(os.environ.get("MAX_SESSIONS", 1000))
 
     print(f"Starting gRPC MEF3 server on port {port} with FileManager config: "
           f"max_workers={max_workers}, tile_duration_s={tile_duration_s}, "
@@ -44,7 +46,8 @@ def main():
           f"use_process_pool={use_process_pool}, reader_processes={reader_processes}, "
           f"prefetch_processes={prefetch_processes}, min_parallel_tiles={min_parallel_tiles}, "
           f"prefetch_ahead_windows={prefetch_ahead_windows}, "
-          f"prefetch_behind_windows={prefetch_behind_windows}, cache_ttl_s={cache_ttl_s}")
+          f"prefetch_behind_windows={prefetch_behind_windows}, cache_ttl_s={cache_ttl_s}, "
+          f"session_ttl_s={session_ttl_s}, max_sessions={max_sessions}")
 
     handler = gRPCMef3ServerHandler(
         port=port,
@@ -58,6 +61,8 @@ def main():
         prefetch_ahead_windows=prefetch_ahead_windows,
         prefetch_behind_windows=prefetch_behind_windows,
         cache_ttl_s=cache_ttl_s,
+        session_ttl_s=session_ttl_s,
+        max_sessions=max_sessions,
     )
 
     def handle_sigterm(signum, frame):
