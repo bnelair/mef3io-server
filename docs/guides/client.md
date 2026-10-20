@@ -80,6 +80,16 @@ data = client.get_signal_range(path, channels, t0, t1)  # data["fs"] == 128
 - The setting belongs to this client's session: another tool reading the same
   file at another rate, or at the original rate, is unaffected. Opening again
   without `cache_fs` goes back to the original rate.
+- If the session expires while the file stays open (another client still uses
+  it), the next read restores it with the same rate.
+- A refused open (`file_opened` is False because of the rate check) leaves an
+  existing session of this client as it was; it does not close the file.
+- `cache_fs` needs a client id, which `Mef3Client` always sends. A server older
+  than this feature makes `open_file(..., cache_fs=...)` raise instead of
+  silently serving the original rate.
+- Buckets are cut per cache tile. When the original rate is not a whole
+  multiple of `cache_fs`, a bucket at a tile edge can be one original sample
+  shorter or longer than its neighbours; no sample is lost or counted twice.
 
 ## Cleaning up
 

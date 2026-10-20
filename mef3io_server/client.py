@@ -80,6 +80,11 @@ class Mef3Client:
         if cache_fs is not None:
             req.cache_fs = float(cache_fs)
         resp = self.stub.OpenFile(req, metadata=self._metadata)
+        if cache_fs is not None and resp.file_opened and not resp.HasField("cache_fs"):
+            # A server from before cache_fs ignores the field and serves the
+            # original rate: say so rather than return many times the data.
+            raise RuntimeError("the server does not support cache_fs (it is older than "
+                               "this client); upgrade mef3io-server or open without it")
         return self._file_info_to_dict(resp)
 
     @staticmethod

@@ -161,3 +161,70 @@ def test_over_grpc(session, grpc_server_factory):
         assert out["array"].shape == (1, 5 * 128)
     finally:
         c.shutdown()
+
+
+@pytest.mark.parametrize("native, served", [(500.0, 128.0), (256.0, 100.0), (1000.0, 333.0)])
+def test_tiles_partition_the_signal_at_uneven_ratios(tmp_path, native, served):
+    """Rates that are not whole multiples: across tile edges no sample is lost or
+    counted twice, so the reduced signal holds exactly the original's extremes
+    per tile and every value is a real sample."""
+    path = str(tmp_path / "uneven.mefd")
+    x = np.random.default_rng(1).normal(0, 100, int(47.3 * native)).round()
+    with mef3io.Writer(path, overwrite=True) as w:
+        w.write("ch", x, START, fs=native, precision=0)
+    m = FileManager(use_process_pool=False, tile_duration_s=5)
+    try:
+        m.open_file(path, client_id="v", cache_fs=served)
+        out = m.read_signal_range(path, ["ch"], START, START + 47_000_000, client_id="v",
+                                  prefetch=False)
+        y = out["array"][0]
+        assert out["fs"] == served
+        assert set(np.unique(y[~np.isnan(y)])) <= set(np.unique(x.astype(np.float32)))
+        assert np.nanmax(y) == x[:int(47 * native)].max()
+        assert np.nanmin(y) == x[:int(47 * native)].min()
+    finally:
+        m.shutdown()
+
+
+def test_cache_fs_needs_a_client_id(fm, session):
+    path, _ = session
+    info = fm.open_file(path, cache_fs=128, allow_mixed_rates=True)
+    assert not info.file_opened and "client id" in info.error_message
+
+
+def test_an_expired_session_comes_back_with_its_rate(session):
+    import time
+    path, _ = session
+    m = FileManager(use_process_pool=False, tile_duration_s=10, session_ttl_s=60)
+    try:
+        m.open_file(path, client_id="other")  # keeps the file open
+        m.open_file(path, client_id="viewer", cache_fs=128, allow_mixed_rates=True)
+        m._sessions[("viewer", path)]["last_used"] -= 120
+        assert m.expire_sessions() == 1 and path in m.list_open_files()
+        out = m.read_signal_range(path, ["fast"], START, START + 1_000_000, client_id="viewer")
+        assert out["fs"] == 128  # not silently the original rate
+        assert ("viewer", path) in m._sessions
+        m._sessions[("viewer", path)]["last_used"] -= 120
+        assert m.expire_sessions() == 1  # expired again ...
+        m.close_file(path, client_id="viewer")  # ... then closed BY the client: forgotten
+        out = m.read_signal_range(path, ["fast"], START, START + 1_000_000, client_id="viewer")
+        assert out["fs"] == FAST
+    finally:
+        m.shutdown()
+
+
+def test_a_client_refuses_an_old_server_silently_ignoring_cache_fs():
+    import mef3io_server.protobufs.gRPCMef3Server_pb2 as pb2
+
+    class OldStub:
+        def OpenFile(self, req, metadata=None):
+            return pb2.FileInfoResponse(file_path=req.file_path, file_opened=True)
+
+    c = Mef3Client("localhost:1")
+    c.stub = OldStub()
+    try:
+        with pytest.raises(RuntimeError, match="does not support cache_fs"):
+            c.open_file("/x.mefd", cache_fs=128)
+        assert c.open_file("/x.mefd")["file_opened"]  # without it: fine
+    finally:
+        c.shutdown()

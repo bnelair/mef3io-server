@@ -135,6 +135,10 @@ class FileManager:
         self.session_ttl_s = float(session_ttl_s) if session_ttl_s and session_ttl_s > 0 else None
         self.max_sessions = max(1, int(max_sessions))
         self._sessions = {}
+        # Settings of client sessions closed by expiry or the cap (not by the
+        # client): a later read by that client restores its session with them,
+        # instead of silently serving the original rate. Bounded like sessions.
+        self._closed_settings = {}
 
         # --- Background TTL sweeper: frees idle tiles even with no traffic ---
         self._stop_sweeper = threading.Event()
@@ -235,7 +239,15 @@ class FileManager:
                         file_opened=False,
                         error_message=str(e)
                     )
-            refusal = self._check_rates_unsafe(file_path, cache_fs, allow_mixed_rates)
+            if cache_fs is not None and not client_id:
+                refusal = ("cache_fs needs a client id: clients that send none share one "
+                           "default session per file, so one would change the rate of "
+                           "all (Mef3Client sends an id)")
+            else:
+                try:
+                    refusal = self._check_rates_unsafe(file_path, cache_fs, allow_mixed_rates)
+                except Exception as e:  # noqa: BLE001 - never leave an orphan reader
+                    refusal = f"Cannot read the channels' sampling rates: {e}"
             if refusal is not None:
                 if not already_open:  # opened for this call only: close it again
                     self._discard_reader(file_path, self._files.pop(file_path, None))
@@ -245,6 +257,7 @@ class FileManager:
             self._sessions[(client_id, file_path)]['settings'] = (
                 {'cache_fs': float(cache_fs), 'allow_mixed_rates': bool(allow_mixed_rates)}
                 if cache_fs else {})
+            self._closed_settings.pop((client_id, file_path), None)
             info = self._get_file_info_unsafe(file_path, client_id)
             if already_open and not client_id:
                 # Unchanged for clients that send no id: a second open says so.
@@ -331,6 +344,12 @@ class FileManager:
             if only_if_used_at is not None and session['last_used'] != only_if_used_at:
                 return None
             self._sessions.pop((client_id, file_path), None)
+            if only_if_used_at is not None and session.get('settings'):
+                # Closed for it (idle, or the cap), not by it: remember why it read
+                # at its rate, so its next read is served the same way.
+                self._closed_settings[(client_id, file_path)] = session['settings']
+                while len(self._closed_settings) > self.max_sessions:
+                    self._closed_settings.pop(next(iter(self._closed_settings)))
             if any(k[1] == file_path for k in self._sessions):
                 return None
         return self._release_file(file_path)
@@ -453,7 +472,11 @@ class FileManager:
         with self._lock:
             if file_path not in self._files:
                 raise ValueError(f"File not open: {file_path}")
-            self._touch_session_unsafe(client_id, file_path)
+            if self._touch_session_unsafe(client_id, file_path) is None and client_id:
+                kept = self._closed_settings.pop((client_id, file_path), None)
+                if kept is not None:  # expired or evicted, the file still open: restore
+                    self._sessions[(client_id, file_path)] = {
+                        'last_used': time.monotonic(), 'settings': kept}
             state = self._files[file_path]
             rdr = state['reader']
             actual_path = state['actual_path']
@@ -785,6 +808,7 @@ class FileManager:
         """
         with self._lock:
             self._sessions.pop((client_id, file_path), None)
+            self._closed_settings.pop((client_id, file_path), None)  # ended by the client
             others = any(k[1] == file_path for k in self._sessions)
             if others:
                 return gRPCMef3Server_pb2.FileInfoResponse(
