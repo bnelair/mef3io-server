@@ -111,6 +111,11 @@ python -m mef3io_server.server
 - `CACHE_TTL_S`: Discard tiles not accessed within this many seconds; a finished
   session (e.g. a detector that moved on) is freed even before the byte budget is
   hit. `0` disables idle expiry (default: 1800 = 30 min)
+- `SESSION_TTL_S`: Close a client's session on a file after this many idle
+  seconds; the file's reader closes when its last session goes. `0` disables
+  (default: 1800). Clients that send no id (older clients) are never expired.
+- `MAX_SESSIONS`: Most client sessions at once; one more closes the least
+  recently used (default: 1000)
 
 Parallel decode (each worker process holds its own mef3io session — see below):
 - `USE_PROCESS_POOL`: Decode cold reads / prefetch in worker processes (default: `true`)

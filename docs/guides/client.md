@@ -58,8 +58,26 @@ neighboring windows are prefetched in the background for smooth paging.
 
 ## Cleaning up
 
-Close a file to release its reader session and purge its tiles from the shared
-cache, and shut the client down when you are done:
+### Sessions
+
+Each `Mef3Client` sends a client id with every call (a random one, or
+`Mef3Client(address, client_id="...")`). The server keeps **one session per
+client and file**:
+
+- opening the same file again from the same client reuses its session, so a
+  tool that re-opens on every page view does not pile up sessions;
+- two clients (two tools, two users) have separate sessions on the same file,
+  while sharing the server's open reader and its decoded tiles;
+- a client can read a file another client opened, so tools can share a file
+  one of them opened;
+- a session idle longer than `SESSION_TTL_S` (30 min by default) is closed.
+
+The id is a name tag, not authentication. A web app serving several users can
+pass one id per user.
+
+Closing a file ends this client's session. The reader is released, and the
+file's tiles purged from the shared cache, when no other session uses the file.
+Shut the client down when you are done:
 
 ```python
 client.close_file("/path/to/file.mefd")
