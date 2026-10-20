@@ -260,17 +260,17 @@ class Mef3Client:
             req.start_uutc = int(start_uutc)
         if end_uutc is not None:
             req.end_uutc = int(end_uutc)
-        out = {}
+        parts = {}  # a long channel arrives in several messages, in order
         for msg in self.stub.GetEnvelope(req, metadata=self._metadata):
             if msg.error_message:
                 raise RuntimeError(msg.error_message)
-            out[msg.channel_name] = {
-                "start_uutc": np.asarray(msg.start_uutc, dtype=np.int64),
-                "end_uutc": np.asarray(msg.end_uutc, dtype=np.int64),
-                "min": np.asarray(msg.min, dtype=np.float64),
-                "max": np.asarray(msg.max, dtype=np.float64),
-            }
-        return out
+            p = parts.setdefault(msg.channel_name, {"start_uutc": [], "end_uutc": [],
+                                                    "min": [], "max": []})
+            p["start_uutc"].append(np.asarray(msg.start_uutc, dtype=np.int64))
+            p["end_uutc"].append(np.asarray(msg.end_uutc, dtype=np.int64))
+            p["min"].append(np.asarray(msg.min, dtype=np.float64))
+            p["max"].append(np.asarray(msg.max, dtype=np.float64))
+        return {ch: {k: np.concatenate(v) for k, v in p.items()} for ch, p in parts.items()}
 
     def list_open_files(self):
         """

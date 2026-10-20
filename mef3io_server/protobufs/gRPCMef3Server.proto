@@ -11,7 +11,8 @@ service gRPCMef3Server {
   rpc GetSignalRange(SignalRangeRequest) returns (stream SignalChunk) {}
   rpc ListOpenFiles(ListOpenFilesRequest) returns (ListOpenFilesResponse) {}
   // Per-block min/max of channels from the MEF block index alone (nothing
-  // decoded): a whole-day overview for viewers. One message per channel.
+  // decoded): a whole-day overview for viewers. Each channel in one or more
+  // messages (in order), so a long recording stays under message limits.
   rpc GetEnvelope(EnvelopeRequest) returns (stream ChannelEnvelope) {}
 }
 

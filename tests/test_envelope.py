@@ -90,3 +90,40 @@ def test_tiles_of_whole_mef_blocks(tmp_path):
     finally:
         plain.shutdown()
         blocks.shutdown()
+
+
+def test_a_long_channel_comes_in_several_messages(session, grpc_server_factory):
+    """Each channel is chunked (here 5 rows a message) and joined again by the
+    client, so a month of 1-s blocks stays under gRPC's 4 MB message limit."""
+    port = grpc_server_factory(use_process_pool=False)
+    c = Mef3Client(f"localhost:{port}")
+    try:
+        c.open_file(session)
+        whole = c.get_envelope(session, ["a"])
+        FileManager.ENVELOPE_CHUNK_ROWS = 5
+        try:
+            chunked = c.get_envelope(session, ["a", "b"])
+        finally:
+            FileManager.ENVELOPE_CHUNK_ROWS = 100_000
+        assert len(chunked["a"]["min"]) == 12
+        for key in ("start_uutc", "end_uutc", "min", "max"):
+            np.testing.assert_array_equal(chunked["a"][key], whole["a"][key])
+    finally:
+        c.shutdown()
+
+
+def test_tiles_fall_back_when_the_block_length_cannot_be_read(tmp_path, monkeypatch):
+    path = str(tmp_path / "fallback.mefd")
+    with mef3io.Writer(path, overwrite=True) as w:
+        w.write("a", np.arange(256 * 30, dtype=float), START, fs=256.0, precision=0)
+    m = FileManager(use_process_pool=False, tile_duration_s=7, respect_mef_blocks=True)
+    try:
+        m.open_file(path, client_id="v")
+        rdr = m._files[path]["reader"]
+        monkeypatch.setattr(rdr, "block_envelope",
+                            lambda *a, **k: (_ for _ in ()).throw(OSError("no index")))
+        with m._lock:
+            _, _, S, _ = m._get_tile_meta_unsafe(m._files[path], "a")
+        assert S == 256 * 7  # the plain tile length
+    finally:
+        m.shutdown()

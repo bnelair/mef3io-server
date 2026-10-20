@@ -109,7 +109,8 @@ class gRPCMef3ServerServicer:
 
     def GetEnvelope(self, request, context):
         """Per-block min/max of channels from the MEF block index alone (nothing
-        decoded): a whole-day overview for viewers. One message per channel.
+        decoded): a whole-day overview for viewers. Each channel in one or more
+        messages (in order), so a long recording stays under message limits.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

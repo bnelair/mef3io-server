@@ -785,18 +785,33 @@ class FileManager:
             raise ValueError(f"Unknown channels: {invalid}")
         for ch in channels:
             # Outside the lock: mef3io readers take overlapping calls.
-            yield ch, rdr.block_envelope(ch, start_uutc, end_uutc)
+            try:
+                env = rdr.block_envelope(ch, start_uutc, end_uutc)
+            except AttributeError:  # the compat reader was closed meanwhile
+                raise ValueError(f"File closed during the request: {file_path}") from None
+            yield ch, env
+
+    #: Most envelope rows in one message (32 B a row: ~3.2 MB, under gRPC's
+    #: default 4 MB receive limit). A long recording in 1-s blocks has far
+    #: more rows per channel, so a channel is sent in several messages.
+    ENVELOPE_CHUNK_ROWS = 100_000
 
     def stream_envelope(self, file_path, channel_names, start_uutc=None, end_uutc=None,
                         client_id=""):
-        """Yield one ``ChannelEnvelope`` per channel; an error as a single message."""
+        """Yield ``ChannelEnvelope`` messages, each channel in chunks of at most
+        ``ENVELOPE_CHUNK_ROWS`` rows (in order); an error as a single message."""
+        step = max(1, int(self.ENVELOPE_CHUNK_ROWS))
         try:
             for ch, env in self.read_envelope(file_path, list(channel_names), start_uutc,
                                               end_uutc, client_id):
-                yield gRPCMef3Server_pb2.ChannelEnvelope(
-                    file_path=file_path, channel_name=ch,
-                    start_uutc=env['start_uutc'].tolist(), end_uutc=env['end_uutc'].tolist(),
-                    min=env['min'].tolist(), max=env['max'].tolist())
+                rows = len(env['start_uutc'])
+                for a in range(0, max(rows, 1), step):
+                    b = a + step
+                    yield gRPCMef3Server_pb2.ChannelEnvelope(
+                        file_path=file_path, channel_name=ch,
+                        start_uutc=env['start_uutc'][a:b].tolist(),
+                        end_uutc=env['end_uutc'][a:b].tolist(),
+                        min=env['min'][a:b].tolist(), max=env['max'][a:b].tolist())
         except Exception as e:
             logger.error(f"Error in read_envelope for {file_path}: {e}")
             yield gRPCMef3Server_pb2.ChannelEnvelope(file_path=file_path, error_message=str(e))
