@@ -159,8 +159,9 @@ class Mef3Client:
             end_uutc (int): Exclusive window end in microseconds (uUTC).
             n_points (int or None): Return exactly this many points per channel,
                 e.g. one per pixel of the view. Each is a real sample (its
-                bucket's minimum or maximum, chosen by MinMaxLTTB so peaks and
-                the line's shape survive), evenly spaced: ``fs`` is then
+                bucket's minimum or maximum, chosen by MinMaxLTTB to keep the
+                line's shape; each channel's overall max and min are always
+                included), evenly spaced: ``fs`` is then
                 ``n_points / window``. A window with fewer samples comes back
                 unchanged (never upsampled). ``None``: the session's rate.
 
@@ -219,6 +220,10 @@ class Mef3Client:
                 'error_message': error_message or 'No data returned.',
             }
         array = np.concatenate(arrays, axis=1) if len(arrays) > 1 else arrays[0]
+        if n_points is not None and array.shape[-1] > int(n_points):
+            # A server from before n_points ignores the field.
+            raise RuntimeError("the server does not support n_points (it is older than this "
+                               "client); upgrade mef3io-server or read without it")
         return {
             'array': array,
             'channel_names': channel_names,

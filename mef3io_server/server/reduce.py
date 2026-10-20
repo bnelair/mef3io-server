@@ -59,14 +59,19 @@ def minmax_lttb(data, n_points):
     The window is cut into ``n_points`` buckets (one per output point, e.g. one
     per pixel). Each bucket's candidates are its minimum and its maximum; the
     one kept forms the largest triangle with the point kept in the previous
-    bucket and the mean of the next bucket's candidates, which is what keeps
-    the drawn line's shape (LTTB) while never dropping a bucket's extremes.
-    Candidates sit at their bucket's centre for the triangle (half a bucket at
-    most from their true position, i.e. under a pixel). Rows are processed
-    together, bucket by bucket. A bucket without data gives NaN and does not
-    move the line's anchor.
+    bucket and the mean of the next bucket's candidates (LTTB), which keeps the
+    drawn line's shape. One point per bucket means one of a bucket's two
+    extremes is dropped; so that the trace's amplitude is never understated,
+    each row's overall maximum and minimum are then put back into their
+    buckets (when both fall in the same bucket, the one farther from the
+    row's typical level, the mean of its bucket midpoints, is kept). Candidates sit at their bucket's centre for the
+    triangle (under one bucket from their true position). Rows are processed
+    together, bucket by bucket; a bucket without data gives NaN.
+    Reductions run in the input's own dtype (no float64 copy of the window).
     """
-    data = np.asarray(data, dtype=np.float64)
+    data = np.asarray(data)
+    if data.dtype.kind != "f":
+        data = data.astype(np.float64)
     rows, n = data.shape
     n_points = max(0, min(int(n_points), n))  # never more points than samples
     values = np.full((rows, n_points), np.nan)
@@ -74,29 +79,50 @@ def minmax_lttb(data, n_points):
         return values
     edges = (np.arange(n_points + 1, dtype=np.int64) * n) // n_points
     # One pass each, NaN-aware (fmin/fmax ignore NaN; an all-NaN bucket stays NaN).
-    lo = np.fmin.reduceat(data, edges[:-1], axis=1)
-    hi = np.fmax.reduceat(data, edges[:-1], axis=1)
+    lo = np.fmin.reduceat(data, edges[:-1], axis=1).astype(np.float64)
+    hi = np.fmax.reduceat(data, edges[:-1], axis=1).astype(np.float64)
     has = ~np.isnan(lo)
     centre = (edges[:-1] + edges[1:] - 1) / 2.0
     mid = (lo + hi) / 2.0
 
-    first = np.argmax(~np.isnan(data), axis=1)
-    ax = first.astype(np.float64)
-    ay = data[np.arange(rows), first]
+    # The line's anchor starts at the first bucket with data (bucket-level, so
+    # no pass over every sample, and always left of the next bucket).
+    rr = np.arange(rows)
+    first = np.argmax(has, axis=1)
+    ax = centre[first].astype(np.float64)
+    ay = mid[rr, first]
+    last = data[:, n - 1].astype(np.float64)
     for k in range(n_points):
         if k + 1 < n_points:
             cx, cy = centre[k + 1], mid[:, k + 1]
         else:
-            cx, cy = float(n - 1), data[:, n - 1]
+            cx, cy = float(n - 1) + 0.5, last
         cy = np.where(np.isnan(cy), ay, cy)  # no next data: only the anchor counts
         xk = centre[k]
-        # Same x for both candidates: the larger triangle is the one farther
-        # from the line anchor -> next-bucket mean, evaluated at this bucket.
-        line = ay + (cy - ay) * (xk - ax) / np.where(cx == ax, 1.0, cx - ax)
+        span = np.where(cx > ax, cx - ax, 1.0)
+        line = ay + (cy - ay) * (xk - ax) / span
         pick_hi = np.abs(hi[:, k] - line) >= np.abs(lo[:, k] - line)
         val = np.where(pick_hi, hi[:, k], lo[:, k])
         ok = has[:, k]
         values[ok, k] = val[ok]
         ax = np.where(ok, xk, ax)
         ay = np.where(ok, val, ay)
+
+    # Never understate the amplitude: each row's overall max and min are shown.
+    any_data = has.any(axis=1)
+    if any_data.any():
+        hi_m = np.where(has, hi, -np.inf)
+        lo_m = np.where(has, lo, np.inf)
+        k_hi, k_lo = hi_m.argmax(axis=1), lo_m.argmin(axis=1)
+        g_hi, g_lo = hi_m[rr, k_hi], lo_m[rr, k_lo]
+        # The channel's typical level, from the buckets (cheap: no pass over
+        # the samples); the larger excursion from it wins a shared bucket.
+        level = np.where(has, mid, 0.0).sum(axis=1) / np.maximum(has.sum(axis=1), 1)
+        centre_v = np.where(any_data, level, 0.0)
+        same = k_hi == k_lo
+        prefer_hi = (g_hi - centre_v) >= (centre_v - g_lo)
+        put_hi = any_data & (~same | prefer_hi)
+        put_lo = any_data & (~same | ~prefer_hi)
+        values[rr[put_hi], k_hi[put_hi]] = g_hi[put_hi]
+        values[rr[put_lo], k_lo[put_lo]] = g_lo[put_lo]
     return values

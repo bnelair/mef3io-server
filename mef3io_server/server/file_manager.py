@@ -449,7 +449,8 @@ class FileManager:
         ``n_points`` (optional): return exactly that many points per channel,
         for example one per pixel, chosen by MinMaxLTTB (``reduce.minmax_lttb``):
         each point is a real sample, its bucket's minimum or maximum, picked to
-        keep the line's shape. The source is the cheapest that still has
+        keep the line's shape, and each channel's overall max and min are
+        always included. The source is the cheapest that still has
         detail to spare: the session's cached rate when it holds at least
         ``2 * n_points`` samples in the window, else the original rate (zoomed
         in). When the original holds ``n_points`` samples or fewer it is

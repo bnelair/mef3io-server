@@ -121,3 +121,69 @@ def test_over_grpc(session, grpc_server_factory):
         assert full["fs"] == 256 and full["array"].shape == (1, 256)
     finally:
         c.shutdown()
+
+
+def test_the_overall_extremes_are_always_shown():
+    """One point per bucket drops one of its two extremes; the row's overall
+    max and min are put back so the amplitude is never understated."""
+    x = np.zeros((1, 10_000))
+    x[0, 100], x[0, 101] = 5.0, -6.0  # a peak next to a deeper trough, one bucket
+    x[0, 5000] = 3.0
+    v = minmax_lttb(x, 100)
+    assert v.min() == -6.0  # the larger excursion wins when both share a bucket
+    assert v.max() == 3.0
+    rng = np.random.default_rng(7)
+    shared = 0
+    for _ in range(50):
+        y = rng.normal(size=(2, 20_000))
+        w = minmax_lttb(y, 200)
+        for r in range(2):
+            b_hi, b_lo = y[r].argmax() // 100, y[r].argmin() // 100  # 100 samples a bucket
+            if b_hi != b_lo:
+                assert w[r].max() == y[r].max() and w[r].min() == y[r].min()
+            else:  # one point for both: the larger excursion is shown
+                shared += 1
+                big = y[r].max() if abs(y[r].max()) >= abs(y[r].min()) else y[r].min()
+                assert big in w[r]
+    assert shared < 10
+    single = minmax_lttb(np.array([[1.0, 9.0, -2.0, 4.0]]), 1)
+    assert single.shape == (1, 1) and single[0, 0] in (9.0, -2.0)
+
+
+def test_float32_input_is_not_copied_to_float64():
+    import tracemalloc
+    x = np.random.default_rng(0).normal(size=(8, 400_000)).astype(np.float32)
+    tracemalloc.start()
+    v = minmax_lttb(x, 500)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < x.nbytes / 2, peak  # far below a float64 copy (2 x x.nbytes)
+    assert np.isin(v, x.astype(np.float64)).all()
+
+
+def test_unknown_channels_and_mixed_rates(fm, session):
+    path, _ = session
+    fm.open_file(path, client_id="v")
+    with pytest.raises(ValueError, match="Unknown channels"):
+        fm.read_signal_range(path, ["nope"], START, START + 1_000_000, client_id="v",
+                             n_points=10)
+
+
+def test_a_client_refuses_an_old_server_ignoring_n_points():
+    import mef3io_server.protobufs.gRPCMef3Server_pb2 as pb2
+
+    class OldStub:
+        def GetSignalRange(self, req, metadata=None):
+            a = np.zeros((1, 1000), dtype=np.float32)
+            yield pb2.SignalChunk(file_path=req.file_path, array_bytes=a.tobytes(),
+                                  dtype="float32", shape=[1, 1000], start_uutc=0,
+                                  end_uutc=1, fs=1000.0, channel_names=["a"])
+
+    c = Mef3Client("localhost:1")
+    c.stub = OldStub()
+    try:
+        with pytest.raises(RuntimeError, match="does not support n_points"):
+            c.get_signal_range("/x.mefd", ["a"], 0, 1, n_points=100)
+        assert c.get_signal_range("/x.mefd", ["a"], 0, 1)["array"].shape == (1, 1000)
+    finally:
+        c.shutdown()
