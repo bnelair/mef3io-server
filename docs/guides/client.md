@@ -73,9 +73,12 @@ client and file**:
 - a session idle longer than `SESSION_TTL_S` (30 min by default) is closed.
 
 The id is a name tag, not authentication. A web app serving several users can
-pass one id per user.
+pass one id per user. Create one `Mef3Client` per tool or user and keep it: each new
+client object has a new random id, so creating one per request leaves a
+session per request until they expire.
 
-Closing a file ends this client's session. The reader is released, and the
+Closing a file ends this client's session (`file_opened` in the reply says
+whether the file is still open for other clients). The reader is released, and the
 file's tiles purged from the shared cache, when no other session uses the file.
 Shut the client down when you are done:
 

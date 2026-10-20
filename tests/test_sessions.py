@@ -144,3 +144,45 @@ def test_over_grpc_the_id_travels_as_metadata(mef3_file, grpc_server_factory):
 def test_a_malformed_client_id_is_refused_by_the_client(bad):
     with pytest.raises(ValueError):
         Mef3Client("localhost:1", client_id=bad)
+
+
+def test_a_session_used_after_it_was_chosen_to_expire_is_kept(mef3_file):
+    """Expiry chooses idle sessions under the lock and closes them after it.
+    A re-open in between (here, forced into that gap) must keep the session
+    and its file open."""
+    import time
+    fm = FileManager(use_process_pool=False, session_ttl_s=60)
+    try:
+        fm.open_file(mef3_file, client_id="tab")
+        fm._sessions[("tab", mef3_file)]["last_used"] -= 120  # idle for 2 min
+        stale_now = time.monotonic()
+        with fm._lock:  # expiry chooses it ...
+            seen = fm._sessions[("tab", mef3_file)]["last_used"]
+        fm.open_file(mef3_file, client_id="tab")  # ... the client comes back ...
+        fm._close_session("tab", mef3_file, only_if_used_at=seen)  # ... then the close
+        assert fm.session_count() == 1 and mef3_file in fm.list_open_files()
+        assert fm.expire_sessions(now=stale_now) == 0
+    finally:
+        fm.shutdown()
+
+
+def test_the_cap_never_closes_a_shared_file(mef3_file):
+    fm = FileManager(use_process_pool=False, max_sessions=1)
+    try:
+        fm.open_file(mef3_file, client_id="old")
+        fm.open_file(mef3_file, client_id="new")  # evicts "old", same file
+        assert fm.session_count() == 1 and mef3_file in fm.list_open_files()
+    finally:
+        fm.shutdown()
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("viewer-1", "viewer-1"), ("", ""), ("x" * 129, ""), ("tab\tid", ""), (None, "")])
+def test_the_server_reads_the_client_id_safely(value, expected):
+    from mef3io_server.server.mef3_server import CLIENT_ID_KEY, client_id_of
+
+    class Ctx:
+        def invocation_metadata(self):
+            return () if value is None else ((CLIENT_ID_KEY, value),)
+
+    assert client_id_of(Ctx()) == expected

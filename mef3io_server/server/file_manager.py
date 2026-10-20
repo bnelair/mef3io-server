@@ -229,8 +229,8 @@ class FileManager:
             if already_open and not client_id:
                 # Unchanged for clients that send no id: a second open says so.
                 info.error_message = f"File already open: {file_path}"
-        for key in evicted:
-            self._close_session(*key)
+        for key, seen in evicted:
+            self._close_session(*key, only_if_used_at=seen)
         return info
 
     # ------------------------------------------------------------------
@@ -254,7 +254,7 @@ class FileManager:
         if excess <= 0:
             return []
         clients.sort(key=lambda k: self._sessions[k]['last_used'])
-        return [k for k in clients if k != key][:excess]
+        return [(k, self._sessions[k]['last_used']) for k in clients if k != key][:excess]
 
     def _touch_session_unsafe(self, client_id, file_path):
         session = self._sessions.get((client_id, file_path))
@@ -262,9 +262,20 @@ class FileManager:
             session['last_used'] = time.monotonic()
         return session
 
-    def _close_session(self, client_id, file_path):
-        """Remove one session; close the file's reader when it was the last."""
+    def _close_session(self, client_id, file_path, only_if_used_at=None):
+        """Remove one session; close the file's reader when it was the last.
+
+        ``only_if_used_at``: the session's ``last_used`` when it was chosen to
+        close (expiry, the cap). Chosen under the lock but closed after it was
+        released, a session can be re-opened or read in between; it is then
+        left alone, rather than closing a session (and file) just used.
+        """
         with self._lock:
+            session = self._sessions.get((client_id, file_path))
+            if session is None:
+                return None
+            if only_if_used_at is not None and session['last_used'] != only_if_used_at:
+                return None
             self._sessions.pop((client_id, file_path), None)
             if any(k[1] == file_path for k in self._sessions):
                 return None
@@ -276,11 +287,17 @@ class FileManager:
             return 0
         now = time.monotonic() if now is None else now
         with self._lock:
-            idle = [k for k, v in self._sessions.items()
+            idle = [(k, v['last_used']) for k, v in self._sessions.items()
                     if k[0] and now - v['last_used'] > self.session_ttl_s]
-        for key in idle:
-            self._close_session(*key)
-        return len(idle)
+        closed = 0
+        for key, seen in idle:
+            with self._lock:
+                still_idle = (key in self._sessions
+                              and self._sessions[key]['last_used'] == seen)
+            if still_idle:
+                self._close_session(*key, only_if_used_at=seen)
+                closed += 1
+        return closed
 
     def session_count(self):
         """How many sessions exist (clients' and the default ones)."""
