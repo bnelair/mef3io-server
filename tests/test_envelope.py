@@ -66,3 +66,27 @@ def test_over_grpc(session, grpc_server_factory):
             c.get_envelope(session, ["nope"])
     finally:
         c.shutdown()
+
+
+def test_tiles_of_whole_mef_blocks(tmp_path):
+    """respect_mef_blocks: a 60 s tile over 7-s blocks becomes 63 s (9 blocks),
+    so tile edges fall on block boundaries; reads are unchanged."""
+    path = str(tmp_path / "blocks.mefd")
+    x = np.arange(256 * 200, dtype=float)
+    with mef3io.Writer(path, overwrite=True, block_length=256 * 7) as w:
+        w.write("a", x, START, fs=256.0, precision=0)
+    plain = FileManager(use_process_pool=False, tile_duration_s=60)
+    blocks = FileManager(use_process_pool=False, tile_duration_s=60, respect_mef_blocks=True)
+    try:
+        for m in (plain, blocks):
+            m.open_file(path, client_id="v")
+        with blocks._lock:
+            fs, cs, S, _ = blocks._get_tile_meta_unsafe(blocks._files[path], "a")
+        assert S == 256 * 63  # 9 blocks of 7 s
+        t0, t1 = START + 50_000_000, START + 130_000_000
+        a = plain.read_signal_range(path, ["a"], t0, t1, client_id="v")["array"]
+        b = blocks.read_signal_range(path, ["a"], t0, t1, client_id="v")["array"]
+        np.testing.assert_array_equal(a, b)
+    finally:
+        plain.shutdown()
+        blocks.shutdown()

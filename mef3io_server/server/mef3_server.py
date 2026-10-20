@@ -144,7 +144,7 @@ class gRPCMef3ServerHandler:
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
                  prefetch_behind_windows=1, cache_ttl_s=1800,
-                 session_ttl_s=1800, max_sessions=1000):
+                 session_ttl_s=1800, max_sessions=1000, respect_mef_blocks=False):
         """Initializes the gRPC server and FileManager.
 
         Args:
@@ -163,6 +163,7 @@ class gRPCMef3ServerHandler:
                 than this (clients that send no id are never expired).
             max_sessions (int): Most client sessions at once (least recently used
                 closed first).
+            respect_mef_blocks (bool): Tiles of whole MEF blocks (see FileManager).
         """
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
 
@@ -180,6 +181,7 @@ class gRPCMef3ServerHandler:
             cache_ttl_s=cache_ttl_s,
             session_ttl_s=session_ttl_s,
             max_sessions=max_sessions,
+            respect_mef_blocks=respect_mef_blocks,
         )
 
         gRPCMef3Server_pb2_grpc.add_gRPCMef3ServerServicer_to_server(

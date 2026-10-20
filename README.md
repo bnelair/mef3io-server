@@ -116,6 +116,9 @@ python -m mef3io_server.server
   (default: 1800). Clients that send no id (older clients) are never expired.
 - `MAX_SESSIONS`: Most client sessions at once; one more closes the least
   recently used (default: 1000)
+- `RESPECT_MEF_BLOCKS`: Round each channel's tile length (`TILE_DURATION_S`)
+  to the nearest whole number of its MEF blocks and start tiles at its first
+  block, so no block is decoded for two tiles (default: `false`)
 
 Parallel decode (each worker process holds its own mef3io session — see below):
 - `USE_PROCESS_POOL`: Decode cold reads / prefetch in worker processes (default: `true`)
