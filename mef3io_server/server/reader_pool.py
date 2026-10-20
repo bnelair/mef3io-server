@@ -21,6 +21,8 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 from mef3io import MefReader
 
+from mef3io_server.server.tiles import read_tile
+
 # Per-worker-process cache of open readers: {actual_path: MefReader}. Each worker
 # process keeps its OWN readers -- a separate mef3io session per process keeps
 # decode fully independent across workers.
@@ -46,34 +48,18 @@ def _worker_read(actual_path, channels, t_start, t_end):
 
 
 def _worker_read_tiles(actual_path, channel, block_indices, fs, channel_start_uutc,
-                       samples_per_tile):
-    """Worker entrypoint: decode fixed-length tiles for one channel.
+                       samples_per_tile, native_fs=None):
+    """Worker entrypoint: decode tiles for one channel (``tiles.read_tile``).
 
-    Mirrors ``FileManager._read_tile_from_disk`` (same uutc math, NaN-padding and
-    ``float32`` dtype) so tiles produced in a worker are byte-identical to those
-    read in-process. Returns ``{block_index: np.ndarray(samples_per_tile) float32}``.
+    The same function the in-process path uses, so a tile is byte-identical
+    whichever produced it. ``native_fs`` above ``fs`` means a downsampled tile.
+    Returns ``{block_index: np.ndarray(samples_per_tile) float32}``.
     """
     reader = _worker_get_reader(actual_path)
-    S = int(samples_per_tile)
-    out = {}
-    for b in block_indices:
-        t_start = channel_start_uutc + int(round(b * S * 1e6 / fs))
-        t_end = channel_start_uutc + int(round((b + 1) * S * 1e6 / fs))
-        try:
-            raw = reader.get_data([channel], int(t_start), int(t_end))
-        except Exception:  # noqa: BLE001 - out-of-range reads must not crash a worker
-            raw = None
-        if raw is None:
-            tile = np.full(S, np.nan, dtype=np.float32)
-        else:
-            arr = np.asarray(raw, dtype=np.float64).reshape(-1)
-            if arr.shape[0] >= S:
-                arr = arr[:S]
-            else:
-                arr = np.concatenate([arr, np.full(S - arr.shape[0], np.nan)])
-            tile = arr.astype(np.float32)
-        out[int(b)] = tile
-    return out
+    nat = fs if native_fs is None else native_fs
+    return {int(b): read_tile(reader, channel, int(b), fs, channel_start_uutc,
+                              samples_per_tile, nat)
+            for b in block_indices}
 
 
 def _split_contiguous(items, n_groups):
@@ -112,7 +98,7 @@ class ReaderProcessPool:
         self._prefetched = {}
 
     def submit_read_tiles(self, actual_path, channel, block_indices, fs,
-                          channel_start_uutc, samples_per_tile):
+                          channel_start_uutc, samples_per_tile, native_fs=None):
         """Submit a decode of the given tiles for one channel; returns a Future.
 
         The Future resolves to ``{block_index: float32 tile}``. Used both for
@@ -121,7 +107,7 @@ class ReaderProcessPool:
         """
         return self._executor.submit(
             _worker_read_tiles, actual_path, channel, list(block_indices),
-            fs, channel_start_uutc, samples_per_tile,
+            fs, channel_start_uutc, samples_per_tile, native_fs,
         )
 
     def warmup(self, actual_path, channel):

@@ -59,7 +59,10 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
     def OpenFile(self, request, context):
         logger.info(f"Received OpenFile request for: {request.file_path}")
         try:
-            return self.manager.open_file(request.file_path, client_id=client_id_of(context))
+            return self.manager.open_file(
+                request.file_path, client_id=client_id_of(context),
+                cache_fs=request.cache_fs if request.HasField("cache_fs") else None,
+                allow_mixed_rates=request.allow_mixed_rates)
         except Exception as e:
             logger.error(f"Exception in OpenFile: {e}")
             return gRPCMef3Server_pb2.FileInfoResponse(
@@ -83,7 +86,7 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
     def FileInfo(self, request, context):
         logger.info(f"Received FileInfo request for: {request.file_path}")
         try:
-            return self.manager.get_file_info(request.file_path)
+            return self.manager.get_file_info(request.file_path, client_id=client_id_of(context))
         except Exception as e:
             logger.error(f"Exception in FileInfo: {e}")
             return gRPCMef3Server_pb2.FileInfoResponse(

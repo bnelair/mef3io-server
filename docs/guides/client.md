@@ -56,6 +56,31 @@ The requested channels must share a sampling rate; reads past end-of-file are
 NaN-padded. Repeated or overlapping requests are served from the tile cache, and
 neighboring windows are prefetched in the background for smooth paging.
 
+## Serving at a lower rate (`cache_fs`)
+
+For viewers, a session can ask the server to serve, cache and prefetch its
+reads at a lower rate:
+
+```python
+info = client.open_file("/path/to/file.mefd", cache_fs=128)
+info["channel_served_sampling_rates"]  # the rate each channel is served at
+data = client.get_signal_range(path, channels, t0, t1)  # data["fs"] == 128
+```
+
+- **Order-preserving min-max.** Each pair of output samples covers `2 / cache_fs`
+  seconds of the original and holds that stretch's minimum and maximum, in the
+  order they occurred. A spike is never lost (it is the minimum or maximum of
+  its stretch), and the trace keeps its shape. Every value is a real sample.
+- **Cached at that rate.** At 4096 Hz -> 128 Hz the cache holds 32 times more
+  time in the same memory, and prefetch works the same way.
+- **The server never upsamples.** If a channel is recorded below `cache_fs`,
+  the open fails (`file_opened` is False, and `error_message` names the
+  channels). Pass `allow_mixed_rates=True` to serve such channels at their own
+  rate instead; `channel_served_sampling_rates` then tells you which.
+- The setting belongs to this client's session: another tool reading the same
+  file at another rate, or at the original rate, is unaffected. Opening again
+  without `cache_fs` goes back to the original rate.
+
 ## Cleaning up
 
 ### Sessions
