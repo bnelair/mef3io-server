@@ -10,6 +10,9 @@ service gRPCMef3Server {
   rpc FileInfo(FileInfoRequest) returns (FileInfoResponse) {}
   rpc GetSignalRange(SignalRangeRequest) returns (stream SignalChunk) {}
   rpc ListOpenFiles(ListOpenFilesRequest) returns (ListOpenFilesResponse) {}
+  // Per-block min/max of channels from the MEF block index alone (nothing
+  // decoded): a whole-day overview for viewers. One message per channel.
+  rpc GetEnvelope(EnvelopeRequest) returns (stream ChannelEnvelope) {}
 }
 
 message OpenFileRequest {
@@ -78,5 +81,26 @@ message ListOpenFilesRequest {}
 
 message ListOpenFilesResponse {
   repeated string file_paths = 1;
+  optional string error_message = 99;
+}
+
+// Unset start/end: the start/end of each channel. Empty channel_names: all.
+message EnvelopeRequest {
+  string file_path = 1;
+  repeated string channel_names = 2;
+  optional int64 start_uutc = 3;
+  optional int64 end_uutc = 4;
+}
+
+// One row per MEF data block overlapping the window (parallel arrays): the
+// block's first sample, just past its last, and its min and max in the
+// channel's units (NaN when the writer left them unset). Gaps are absent rows.
+message ChannelEnvelope {
+  string file_path = 1;
+  string channel_name = 2;
+  repeated int64 start_uutc = 3;
+  repeated int64 end_uutc = 4;
+  repeated double min = 5;
+  repeated double max = 6;
   optional string error_message = 99;
 }

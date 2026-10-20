@@ -56,6 +56,20 @@ The requested channels must share a sampling rate; reads past end-of-file are
 NaN-padded. Repeated or overlapping requests are served from the tile cache, and
 neighboring windows are prefetched in the background for smooth paging.
 
+## A whole-recording overview (`get_envelope`)
+
+```python
+env = client.get_envelope(path)                  # all channels, whole recording
+env["ch1"]["start_uutc"], env["ch1"]["end_uutc"]  # one row per MEF block
+env["ch1"]["min"], env["ch1"]["max"]              # in the channel's units
+```
+
+The minimum and maximum of every MEF data block, read from the block index
+alone: nothing is decoded, so a whole day costs reading the small index files.
+The resolution is the block length (10 s for files mef3io wrote, by default).
+Gaps are absent rows, and a block whose writer left its extremes unset gives
+NaN. Pass `channels` and `start_uutc`/`end_uutc` to narrow it.
+
 ## Serving at a lower rate (`cache_fs`)
 
 For viewers, a session can ask the server to serve, cache and prefetch its

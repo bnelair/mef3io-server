@@ -99,3 +99,33 @@ class ListOpenFilesResponse(_message.Message):
     file_paths: _containers.RepeatedScalarFieldContainer[str]
     error_message: str
     def __init__(self, file_paths: _Optional[_Iterable[str]] = ..., error_message: _Optional[str] = ...) -> None: ...
+
+class EnvelopeRequest(_message.Message):
+    __slots__ = ("file_path", "channel_names", "start_uutc", "end_uutc")
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_NAMES_FIELD_NUMBER: _ClassVar[int]
+    START_UUTC_FIELD_NUMBER: _ClassVar[int]
+    END_UUTC_FIELD_NUMBER: _ClassVar[int]
+    file_path: str
+    channel_names: _containers.RepeatedScalarFieldContainer[str]
+    start_uutc: int
+    end_uutc: int
+    def __init__(self, file_path: _Optional[str] = ..., channel_names: _Optional[_Iterable[str]] = ..., start_uutc: _Optional[int] = ..., end_uutc: _Optional[int] = ...) -> None: ...
+
+class ChannelEnvelope(_message.Message):
+    __slots__ = ("file_path", "channel_name", "start_uutc", "end_uutc", "min", "max", "error_message")
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_NAME_FIELD_NUMBER: _ClassVar[int]
+    START_UUTC_FIELD_NUMBER: _ClassVar[int]
+    END_UUTC_FIELD_NUMBER: _ClassVar[int]
+    MIN_FIELD_NUMBER: _ClassVar[int]
+    MAX_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    file_path: str
+    channel_name: str
+    start_uutc: _containers.RepeatedScalarFieldContainer[int]
+    end_uutc: _containers.RepeatedScalarFieldContainer[int]
+    min: _containers.RepeatedScalarFieldContainer[float]
+    max: _containers.RepeatedScalarFieldContainer[float]
+    error_message: str
+    def __init__(self, file_path: _Optional[str] = ..., channel_name: _Optional[str] = ..., start_uutc: _Optional[_Iterable[int]] = ..., end_uutc: _Optional[_Iterable[int]] = ..., min: _Optional[_Iterable[float]] = ..., max: _Optional[_Iterable[float]] = ..., error_message: _Optional[str] = ...) -> None: ...

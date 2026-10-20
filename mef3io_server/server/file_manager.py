@@ -732,6 +732,44 @@ class FileManager:
                 if s is not None:
                     s.discard((channel, fs, block_index))
 
+    def read_envelope(self, file_path, channels=None, start_uutc=None, end_uutc=None,
+                      client_id=""):
+        """Per-block min/max of channels, from the MEF block index alone.
+
+        Nothing is decoded and nothing is cached (the index is small, and mef3io
+        keeps it in memory). Yields ``(channel, dict)`` with NumPy arrays
+        ``start_uutc``, ``end_uutc``, ``min``, ``max`` (see
+        ``mef3io.Reader.block_envelope``). The file must be open by someone;
+        the caller's session, if any, is kept alive.
+        """
+        with self._lock:
+            if file_path not in self._files:
+                raise ValueError(f"File not open: {file_path}")
+            self._touch_session_unsafe(client_id, file_path)
+            rdr = self._files[file_path]['reader']
+            all_channels = list(rdr.channels)
+        channels = list(channels) if channels else all_channels
+        invalid = [c for c in channels if c not in all_channels]
+        if invalid:
+            raise ValueError(f"Unknown channels: {invalid}")
+        for ch in channels:
+            # Outside the lock: mef3io readers take overlapping calls.
+            yield ch, rdr.block_envelope(ch, start_uutc, end_uutc)
+
+    def stream_envelope(self, file_path, channel_names, start_uutc=None, end_uutc=None,
+                        client_id=""):
+        """Yield one ``ChannelEnvelope`` per channel; an error as a single message."""
+        try:
+            for ch, env in self.read_envelope(file_path, list(channel_names), start_uutc,
+                                              end_uutc, client_id):
+                yield gRPCMef3Server_pb2.ChannelEnvelope(
+                    file_path=file_path, channel_name=ch,
+                    start_uutc=env['start_uutc'].tolist(), end_uutc=env['end_uutc'].tolist(),
+                    min=env['min'].tolist(), max=env['max'].tolist())
+        except Exception as e:
+            logger.error(f"Error in read_envelope for {file_path}: {e}")
+            yield gRPCMef3Server_pb2.ChannelEnvelope(file_path=file_path, error_message=str(e))
+
     def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id="",
                             n_points=None):
         """Yield a ``[start_uutc, end_uutc)`` read as ~2.5MB streamed SignalChunks.

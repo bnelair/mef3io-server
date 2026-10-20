@@ -63,6 +63,11 @@ class gRPCMef3ServerStub:
                 request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
                 response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
                 _registered_method=True)
+        self.GetEnvelope = channel.unary_stream(
+                '/gRPCMef3Server/GetEnvelope',
+                request_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.EnvelopeRequest.SerializeToString,
+                response_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ChannelEnvelope.FromString,
+                _registered_method=True)
 
 
 class gRPCMef3ServerServicer:
@@ -102,6 +107,14 @@ class gRPCMef3ServerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetEnvelope(self, request, context):
+        """Per-block min/max of channels from the MEF block index alone (nothing
+        decoded): a whole-day overview for viewers. One message per channel.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_gRPCMef3ServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -129,6 +142,11 @@ def add_gRPCMef3ServerServicer_to_server(servicer, server):
                     servicer.ListOpenFiles,
                     request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.FromString,
                     response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.SerializeToString,
+            ),
+            'GetEnvelope': grpc.unary_stream_rpc_method_handler(
+                    servicer.GetEnvelope,
+                    request_deserializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.EnvelopeRequest.FromString,
+                    response_serializer=mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ChannelEnvelope.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -270,6 +288,33 @@ class gRPCMef3Server:
             '/gRPCMef3Server/ListOpenFiles',
             mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesRequest.SerializeToString,
             mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ListOpenFilesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetEnvelope(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/gRPCMef3Server/GetEnvelope',
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.EnvelopeRequest.SerializeToString,
+            mef3io__server_dot_protobufs_dot_gRPCMef3Server__pb2.ChannelEnvelope.FromString,
             options,
             channel_credentials,
             insecure,

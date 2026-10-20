@@ -116,6 +116,16 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 error_message=str(e)
             )
 
+    def GetEnvelope(self, request, context):
+        logger.info(f"Received GetEnvelope from: {request.file_path}")
+        yield from self.manager.stream_envelope(
+            request.file_path,
+            list(request.channel_names),
+            request.start_uutc if request.HasField("start_uutc") else None,
+            request.end_uutc if request.HasField("end_uutc") else None,
+            client_id=client_id_of(context),
+        )
+
     def ListOpenFiles(self, request, context):
         logger.info("Received ListOpenFiles request")
         try:

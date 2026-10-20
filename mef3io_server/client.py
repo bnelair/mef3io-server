@@ -235,6 +235,43 @@ class Mef3Client:
             'error_message': error_message or '',
         }
 
+    def get_envelope(self, file_path, channels=None, start_uutc=None, end_uutc=None):
+        """Per-block minimum and maximum of channels, from the MEF block index alone.
+
+        Nothing is decoded on the server, so a whole day of a channel costs
+        reading its small index (one row per MEF block, 10 s by default): the
+        fast way to draw an overview.
+
+        Args:
+            file_path (str): An open MEF3 file.
+            channels (list[str] or None): Channels; ``None``/empty means all.
+            start_uutc, end_uutc (int or None): Window ``[start, end)`` in uUTC;
+                ``None`` means the start/end of each channel.
+
+        Returns:
+            dict: ``{channel: {"start_uutc", "end_uutc", "min", "max"}}`` with
+            NumPy arrays (int64 times, float64 values in the channel's units,
+            NaN where the writer left a block's extremes unset). Gaps are absent
+            rows. Raises RuntimeError with the server's message on an error.
+        """
+        req = pb2.EnvelopeRequest(file_path=file_path,
+                                  channel_names=list(channels) if channels else [])
+        if start_uutc is not None:
+            req.start_uutc = int(start_uutc)
+        if end_uutc is not None:
+            req.end_uutc = int(end_uutc)
+        out = {}
+        for msg in self.stub.GetEnvelope(req, metadata=self._metadata):
+            if msg.error_message:
+                raise RuntimeError(msg.error_message)
+            out[msg.channel_name] = {
+                "start_uutc": np.asarray(msg.start_uutc, dtype=np.int64),
+                "end_uutc": np.asarray(msg.end_uutc, dtype=np.int64),
+                "min": np.asarray(msg.min, dtype=np.float64),
+                "max": np.asarray(msg.max, dtype=np.float64),
+            }
+        return out
+
     def list_open_files(self):
         """
         List all currently open MEF3 files on the server.
