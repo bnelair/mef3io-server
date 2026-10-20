@@ -6,6 +6,7 @@ import mef3io_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
 from mef3io_server.server.tile_cache import TileCache, CACHE_DTYPE
 from mef3io_server.server.reader_pool import ReaderProcessPool
+from mef3io_server.server.tiles import read_tile, samples_per_tile
 from mef3io import MefReader
 from mef3io_server.server.log_manager import get_logger
 import os
@@ -101,7 +102,8 @@ class FileManager:
         self.tile_cache_bytes = tile_cache_bytes
         self.cache_ttl_s = float(cache_ttl_s) if cache_ttl_s and cache_ttl_s > 0 else None
         # A single tile cache shared across all open files, keyed by
-        # (file_path, channel, block_index), enforces one global memory ceiling.
+        # (file_path, channel, served fs, block_index): by content, never by
+        # client, so sessions with the same rate share tiles. One global ceiling.
         self._tile_cache = TileCache(max_bytes=tile_cache_bytes, ttl_seconds=self.cache_ttl_s)
 
         # --- Process-pool decode configuration (two disjoint lanes) ---
@@ -133,6 +135,10 @@ class FileManager:
         self.session_ttl_s = float(session_ttl_s) if session_ttl_s and session_ttl_s > 0 else None
         self.max_sessions = max(1, int(max_sessions))
         self._sessions = {}
+        # Settings of client sessions closed by expiry or the cap (not by the
+        # client): a later read by that client restores its session with them,
+        # instead of silently serving the original rate. Bounded like sessions.
+        self._closed_settings = {}
 
         # --- Background TTL sweeper: frees idle tiles even with no traffic ---
         self._stop_sweeper = threading.Event()
@@ -183,13 +189,20 @@ class FileManager:
             except Exception as e:  # noqa: BLE001 - sweeper must never die
                 logger.error(f"Tile cache sweeper error: {e}")
 
-    def open_file(self, file_path, client_id=""):
+    def open_file(self, file_path, client_id="", cache_fs=None, allow_mixed_rates=False):
         """Opens a MEF file for one client and returns its info.
 
         Args:
             file_path (str): Path to the MEF file.
             client_id (str): The calling client's id; ``""`` for clients that send
                 none (the behaviour before sessions existed).
+            cache_fs (float or None): Serve this session's reads at this rate
+                (order-preserving min-max of the original), cached and prefetched
+                at it. ``None``: each channel's own rate. A re-open replaces the
+                session's settings.
+            allow_mixed_rates (bool): With ``cache_fs``: a channel recorded below
+                it is served at its own rate. Without it, such a channel makes
+                the open fail, saying which channels and why.
 
         Returns:
             FileInfoResponse: Protobuf response with file info and open status.
@@ -214,7 +227,9 @@ class FileManager:
                         'actual_path': actual_path,
                         # Per-channel tile metadata (tiles themselves live in the
                         # shared self._tile_cache)
-                        'tile_meta': {},  # channel -> (fs, channel_start_uutc, samples_per_tile)
+                        # (channel, served fs) -> (fs, start, samples_per_tile, native fs)
+                        'tile_meta': {},
+                        'native_fs': {},  # channel -> its own sampling rate
                     }
                     logger.info(f"Opened file: {file_path}")
                 except Exception as e:
@@ -224,14 +239,66 @@ class FileManager:
                         file_opened=False,
                         error_message=str(e)
                     )
+            if cache_fs is not None and not client_id:
+                refusal = ("cache_fs needs a client id: clients that send none share one "
+                           "default session per file, so one would change the rate of "
+                           "all (Mef3Client sends an id)")
+            else:
+                try:
+                    refusal = self._check_rates_unsafe(file_path, cache_fs, allow_mixed_rates)
+                except Exception as e:  # noqa: BLE001 - never leave an orphan reader
+                    refusal = f"Cannot read the channels' sampling rates: {e}"
+            if refusal is not None:
+                if not already_open:  # opened for this call only: close it again
+                    self._discard_reader(file_path, self._files.pop(file_path, None))
+                return gRPCMef3Server_pb2.FileInfoResponse(
+                    file_path=file_path, file_opened=False, error_message=refusal)
             evicted = self._open_session_unsafe(client_id, file_path)
-            info = self._get_file_info_unsafe(file_path)
+            self._sessions[(client_id, file_path)]['settings'] = (
+                {'cache_fs': float(cache_fs), 'allow_mixed_rates': bool(allow_mixed_rates)}
+                if cache_fs else {})
+            self._closed_settings.pop((client_id, file_path), None)
+            info = self._get_file_info_unsafe(file_path, client_id)
             if already_open and not client_id:
                 # Unchanged for clients that send no id: a second open says so.
                 info.error_message = f"File already open: {file_path}"
         for key, seen in evicted:
             self._close_session(*key, only_if_used_at=seen)
         return info
+
+    def _check_rates_unsafe(self, file_path, cache_fs, allow_mixed_rates):
+        """Why ``cache_fs`` cannot be served for this file, or ``None``.
+
+        The server never upsamples: a channel recorded below ``cache_fs`` is
+        refused, unless ``allow_mixed_rates`` serves it at its own rate.
+        Assumes ``self._lock`` is held.
+        """
+        if cache_fs is None:
+            return None
+        if not cache_fs > 0 or cache_fs != cache_fs or cache_fs == float('inf'):
+            return f"cache_fs must be a positive sampling rate (Hz), not {cache_fs}"
+        if allow_mixed_rates:
+            return None
+        rdr = self._files[file_path]['reader']
+        below = [(ch, float(fs)) for ch, fs in zip(rdr.channels, rdr.get_property('fsamp'))
+                 if float(fs) < cache_fs]
+        if not below:
+            return None
+        listed = ", ".join(f"{ch} ({fs:g} Hz)" for ch, fs in below[:10])
+        more = f" and {len(below) - 10} more" if len(below) > 10 else ""
+        return (f"cache_fs {cache_fs:g} Hz is above the recorded rate of {len(below)} "
+                f"channel(s): {listed}{more}. The server does not upsample: choose a "
+                "lower cache_fs, or pass allow_mixed_rates to serve those channels at "
+                "their own rate.")
+
+    def _discard_reader(self, file_path, state):
+        """Close a reader that is no longer tracked (best effort)."""
+        if state is None:
+            return
+        try:
+            state['reader'].close()
+        except Exception as e:  # noqa: BLE001 - nothing else to do
+            logger.error(f"Error closing reader for {file_path}: {e}")
 
     # ------------------------------------------------------------------
     # Sessions: (client_id, file_path)
@@ -277,6 +344,12 @@ class FileManager:
             if only_if_used_at is not None and session['last_used'] != only_if_used_at:
                 return None
             self._sessions.pop((client_id, file_path), None)
+            if only_if_used_at is not None and session.get('settings'):
+                # Closed for it (idle, or the cap), not by it: remember why it read
+                # at its rate, so its next read is served the same way.
+                self._closed_settings[(client_id, file_path)] = session['settings']
+                while len(self._closed_settings) > self.max_sessions:
+                    self._closed_settings.pop(next(iter(self._closed_settings)))
             if any(k[1] == file_path for k in self._sessions):
                 return None
         return self._release_file(file_path)
@@ -307,50 +380,40 @@ class FileManager:
     # ------------------------------------------------------------------
     # Timestamp-based access (tile cache): read any channels over any [t1, t2]
     # ------------------------------------------------------------------
-    def _get_tile_meta_unsafe(self, state, channel):
-        """Return (fs, channel_start_uutc, samples_per_tile) for a channel.
+    def _get_tile_meta_unsafe(self, state, channel, served_fs=None):
+        """Return ``(fs, channel_start_uutc, samples_per_tile, native_fs)``.
 
-        Cached on the file state. Assumes ``self._lock`` is held.
+        ``fs`` is the rate the tiles are served at: ``served_fs`` when given and
+        below the channel's own rate (downsampled tiles), else the channel's own.
+        Cached on the file state per (channel, rate). Assumes ``self._lock`` is
+        held.
         """
-        meta = state['tile_meta'].get(channel)
+        native = state['native_fs'].get(channel)
+        if native is None:
+            native = state['native_fs'][channel] = float(
+                state['reader'].get_property('fsamp', channel))
+        fs = served_fs if served_fs and served_fs < native else native
+        meta = state['tile_meta'].get((channel, fs))
         if meta is None:
-            rdr = state['reader']
-            fs = float(rdr.get_property('fsamp', channel))
-            cs = int(rdr.get_property('start_time', channel))
-            samples_per_tile = max(1, int(round(self.tile_duration_s * fs)))
-            meta = (fs, cs, samples_per_tile)
-            state['tile_meta'][channel] = meta
+            cs = int(state['reader'].get_property('start_time', channel))
+            meta = (fs, cs, samples_per_tile(self.tile_duration_s, fs, native), native)
+            state['tile_meta'][(channel, fs)] = meta
         return meta
 
-    def _read_tile_from_disk(self, rdr, channel, block_index, fs, channel_start_uutc,
-                             samples_per_tile):
-        """Read one fixed-length tile for a channel, NaN-padding short/absent reads.
+    def _read_tile_from_disk(self, rdr, channel, block_index, meta):
+        """Read one tile for a channel (see ``tiles.read_tile``)."""
+        fs, cs, S, native = meta
+        return read_tile(
+            rdr, channel, block_index, fs, cs, S, native,
+            on_miss=lambda e: logger.debug(
+                f"Tile read miss ({channel}, {block_index}) for range: {e}"))
 
-        The tile spans samples ``[block_index * S, (block_index + 1) * S)`` for this
-        channel, addressed by converting those sample offsets back to uutc.
-        """
-        S = samples_per_tile
-        t_start = channel_start_uutc + int(round(block_index * S * 1e6 / fs))
-        t_end = channel_start_uutc + int(round((block_index + 1) * S * 1e6 / fs))
-        try:
-            raw = rdr.get_data([channel], t_start, t_end)
-        except Exception as e:  # noqa: BLE001 - out-of-range reads should not crash
-            logger.debug(f"Tile read miss ({channel}, {block_index}) for range: {e}")
-            raw = None
-        if raw is None:
-            return np.full(S, np.nan, dtype=CACHE_DTYPE)
-        arr = np.asarray(raw, dtype=np.float64).reshape(-1)
-        if arr.shape[0] >= S:
-            arr = arr[:S]
-        elif arr.shape[0] < S:
-            arr = np.concatenate([arr, np.full(S - arr.shape[0], np.nan)])
-        return arr.astype(CACHE_DTYPE)
-
-    def _prefetch_tile(self, file_path, channel, block_index):
+    def _prefetch_tile(self, file_path, channel, block_index, meta):
         """Background worker: load one tile into the cache if not present/in-flight."""
         if block_index < 0:
             return
-        cache_key = (file_path, channel, block_index)
+        fs = meta[0]
+        cache_key = (file_path, channel, fs, block_index)
         with self._lock:
             if file_path not in self._files:
                 return
@@ -358,14 +421,13 @@ class FileManager:
             if self._tile_cache.contains(cache_key):
                 return
             in_progress = self._tile_in_progress.setdefault(file_path, set())
-            key = (channel, block_index)
+            key = (channel, fs, block_index)
             if key in in_progress:
                 return
             in_progress.add(key)
             rdr = state['reader']
-            fs, cs, S = self._get_tile_meta_unsafe(state, channel)
         try:
-            tile = self._read_tile_from_disk(rdr, channel, block_index, fs, cs, S)
+            tile = self._read_tile_from_disk(rdr, channel, block_index, meta)
             with self._lock:
                 still_open = file_path in self._files
             if still_open:
@@ -377,7 +439,7 @@ class FileManager:
             with self._lock:
                 s = self._tile_in_progress.get(file_path)
                 if s is not None:
-                    s.discard((channel, block_index))
+                    s.discard(key)
 
     def read_signal_range(self, file_path, channels, start_uutc, end_uutc, prefetch=True,
                           client_id=""):
@@ -410,7 +472,11 @@ class FileManager:
         with self._lock:
             if file_path not in self._files:
                 raise ValueError(f"File not open: {file_path}")
-            self._touch_session_unsafe(client_id, file_path)
+            if self._touch_session_unsafe(client_id, file_path) is None and client_id:
+                kept = self._closed_settings.pop((client_id, file_path), None)
+                if kept is not None:  # expired or evicted, the file still open: restore
+                    self._sessions[(client_id, file_path)] = {
+                        'last_used': time.monotonic(), 'settings': kept}
             state = self._files[file_path]
             rdr = state['reader']
             actual_path = state['actual_path']
@@ -422,7 +488,9 @@ class FileManager:
             invalid = [c for c in channels if c not in all_channels]
             if invalid:
                 raise ValueError(f"Unknown channels: {invalid}")
-            metas = {ch: self._get_tile_meta_unsafe(state, ch) for ch in channels}
+            session = self._sessions.get((client_id, file_path)) or {}
+            cache_fs = session.get('settings', {}).get('cache_fs')
+            metas = {ch: self._get_tile_meta_unsafe(state, ch, cache_fs) for ch in channels}
 
         if end_uutc <= start_uutc:
             raise ValueError("end_uutc must be greater than start_uutc")
@@ -437,7 +505,7 @@ class FileManager:
         # Per-channel block span covering the requested window.
         spans = {}
         for ch in channels:
-            _, cs, S = metas[ch]
+            _, cs, S, _native = metas[ch]
             i1 = int(round((start_uutc - cs) * fs / 1e6))
             b1 = i1 // S
             b2 = (i1 + n - 1) // S
@@ -452,14 +520,14 @@ class FileManager:
         rows = []
         for ch in channels:
             b1, b2, i1 = spans[ch]
-            _, cs, S = metas[ch]
+            _, cs, S, _native = metas[ch]
             parts = []
             for b in range(b1, b2 + 1):
-                tile = cache.get((file_path, ch, b)) if b >= 0 else None
+                tile = cache.get((file_path, ch, fs, b)) if b >= 0 else None
                 if tile is None:
-                    tile = self._read_tile_from_disk(rdr, ch, b, fs, cs, S)
+                    tile = self._read_tile_from_disk(rdr, ch, b, metas[ch])
                     if b >= 0:
-                        cache.put((file_path, ch, b), tile)
+                        cache.put((file_path, ch, fs, b), tile)
                 parts.append(tile)
             concat = parts[0] if len(parts) == 1 else np.concatenate(parts)
             offset = i1 - b1 * S
@@ -495,8 +563,9 @@ class FileManager:
         jobs = {}  # channel -> list of missing (>=0) block indices
         total_missing = 0
         for ch, (b1, b2, _) in spans.items():
+            fs = metas[ch][0]
             missing = [b for b in range(max(0, b1), b2 + 1)
-                       if not cache.contains((file_path, ch, b))]
+                       if not cache.contains((file_path, ch, fs, b))]
             if missing:
                 jobs[ch] = missing
                 total_missing += len(missing)
@@ -508,8 +577,9 @@ class FileManager:
         try:
             futs = []
             for ch, blocks in jobs.items():
-                fs, cs, S = metas[ch]
-                futs.append((ch, pool.submit_read_tiles(actual_path, ch, blocks, fs, cs, S)))
+                fs, cs, S, native = metas[ch]
+                futs.append((ch, pool.submit_read_tiles(actual_path, ch, blocks, fs, cs, S,
+                                                        native)))
             for ch, fut in futs:
                 try:
                     tiles = fut.result()
@@ -517,7 +587,7 @@ class FileManager:
                     logger.error(f"Parallel tile read failed for {ch} in {file_path}: {e}")
                     continue
                 for b, tile in tiles.items():
-                    cache.put((file_path, ch, b), tile)
+                    cache.put((file_path, ch, metas[ch][0], b), tile)
         except Exception as e:  # noqa: BLE001 - e.g. BrokenProcessPool on submit
             # The pool is unusable (e.g. a worker died). Don't fail the read: the
             # assembly loop reads any still-missing tiles in-process.
@@ -543,7 +613,7 @@ class FileManager:
         if not ranges:
             return
         for ch in channels:
-            _, cs, S = metas[ch]
+            _, cs, S, _native = metas[ch]
             blocks = set()
             for ta, tb in ranges:
                 if tb <= ta:
@@ -564,34 +634,36 @@ class FileManager:
         pool = self._get_bg_pool()
         if pool is None:
             # Thread fallback: in-process read overlapping client think-time.
-            self._prefetch_executor.submit(self._prefetch_tile, file_path, channel, block_index)
+            self._prefetch_executor.submit(self._prefetch_tile, file_path, channel, block_index,
+                                           meta)
             return
-        cache_key = (file_path, channel, block_index)
+        fs, cs, S, native = meta
+        cache_key = (file_path, channel, fs, block_index)
+        key = (channel, fs, block_index)
         with self._lock:
             if file_path not in self._files:
                 return
             if self._tile_cache.contains(cache_key):
                 return
             in_progress = self._tile_in_progress.setdefault(file_path, set())
-            key = (channel, block_index)
             if key in in_progress:
                 return
             in_progress.add(key)
-        fs, cs, S = meta
         try:
-            fut = pool.submit_read_tiles(actual_path, channel, [block_index], fs, cs, S)
+            fut = pool.submit_read_tiles(actual_path, channel, [block_index], fs, cs, S, native)
         except Exception as e:  # noqa: BLE001 - e.g. BrokenProcessPool; prefetch is best-effort
             logger.error(f"Prefetch submit failed ({channel}, {block_index}) for {file_path}: {e}")
             with self._lock:
                 s = self._tile_in_progress.get(file_path)
                 if s is not None:
-                    s.discard((channel, block_index))
+                    s.discard(key)
             return
         fut.add_done_callback(
-            lambda f, fp=file_path, ch=channel, b=block_index: self._on_prefetch_done(f, fp, ch, b)
+            lambda f, fp=file_path, ch=channel, r=fs, b=block_index:
+                self._on_prefetch_done(f, fp, ch, r, b)
         )
 
-    def _on_prefetch_done(self, fut, file_path, channel, block_index):
+    def _on_prefetch_done(self, fut, file_path, channel, fs, block_index):
         """Insert a prefetched tile into the cache and clear its in-flight marker."""
         try:
             tiles = fut.result()
@@ -604,13 +676,13 @@ class FileManager:
                     still_open = file_path in self._files
                 if still_open:
                     for b, tile in tiles.items():
-                        self._tile_cache.put((file_path, channel, b), tile)
+                        self._tile_cache.put((file_path, channel, fs, b), tile)
                     logger.debug(f"Tile PREFETCHED: ({channel}, {block_index}) for {file_path}")
         finally:
             with self._lock:
                 s = self._tile_in_progress.get(file_path)
                 if s is not None:
-                    s.discard((channel, block_index))
+                    s.discard((channel, fs, block_index))
 
     def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id=""):
         """Yield a ``[start_uutc, end_uutc)`` read as ~2.5MB streamed SignalChunks.
@@ -674,7 +746,7 @@ class FileManager:
             self._files.clear()
             self._sessions.clear()
 
-    def _get_file_info_unsafe(self, file_path):
+    def _get_file_info_unsafe(self, file_path, client_id=""):
         """Internal helper to get file info. Assumes lock is already held.
 
         Args:
@@ -692,6 +764,8 @@ class FileManager:
         state = self._files[file_path]
         rdr = state['reader']
         fs = rdr.get_property('fsamp')
+        session = self._sessions.get((client_id, file_path)) or {}
+        cache_fs = session.get('settings', {}).get('cache_fs')
         ch_names = rdr.channels
         nch = len(ch_names)
         # Per-channel start/end timestamps -- parallel to channel_names.
@@ -712,6 +786,9 @@ class FileManager:
             duration_s=duration_s,
             channel_start_uutc=ch_starts,
             channel_end_uutc=ch_ends,
+            channel_served_sampling_rates=[
+                cache_fs if cache_fs and cache_fs < float(f) else float(f) for f in fs],
+            **({'cache_fs': cache_fs} if cache_fs else {}),
         )
 
     def close_file(self, file_path, client_id=""):
@@ -731,6 +808,7 @@ class FileManager:
         """
         with self._lock:
             self._sessions.pop((client_id, file_path), None)
+            self._closed_settings.pop((client_id, file_path), None)  # ended by the client
             others = any(k[1] == file_path for k in self._sessions)
             if others:
                 return gRPCMef3Server_pb2.FileInfoResponse(
@@ -781,7 +859,7 @@ class FileManager:
                 error_message=error_message
             )
 
-    def get_file_info(self, file_path):
+    def get_file_info(self, file_path, client_id=""):
         """Gets information about an open MEF file.
 
         Args:
@@ -792,7 +870,7 @@ class FileManager:
         """
         with self._lock:
             try:
-                return self._get_file_info_unsafe(file_path)
+                return self._get_file_info_unsafe(file_path, client_id)
             except Exception as e:
                 logger.error(f"Error getting file info for {file_path}: {e}")
                 return gRPCMef3Server_pb2.FileInfoResponse(

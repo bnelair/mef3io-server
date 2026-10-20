@@ -7,10 +7,14 @@ from typing import ClassVar as _ClassVar, Optional as _Optional
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class OpenFileRequest(_message.Message):
-    __slots__ = ("file_path",)
+    __slots__ = ("file_path", "cache_fs", "allow_mixed_rates")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    CACHE_FS_FIELD_NUMBER: _ClassVar[int]
+    ALLOW_MIXED_RATES_FIELD_NUMBER: _ClassVar[int]
     file_path: str
-    def __init__(self, file_path: _Optional[str] = ...) -> None: ...
+    cache_fs: float
+    allow_mixed_rates: bool
+    def __init__(self, file_path: _Optional[str] = ..., cache_fs: _Optional[float] = ..., allow_mixed_rates: _Optional[bool] = ...) -> None: ...
 
 class FileInfoRequest(_message.Message):
     __slots__ = ("file_path",)
@@ -19,7 +23,7 @@ class FileInfoRequest(_message.Message):
     def __init__(self, file_path: _Optional[str] = ...) -> None: ...
 
 class FileInfoResponse(_message.Message):
-    __slots__ = ("file_path", "file_opened", "number_of_channels", "channel_names", "channel_sampling_rates", "start_uutc", "end_uutc", "duration_s", "channel_start_uutc", "channel_end_uutc", "error_message")
+    __slots__ = ("file_path", "file_opened", "number_of_channels", "channel_names", "channel_sampling_rates", "start_uutc", "end_uutc", "duration_s", "channel_start_uutc", "channel_end_uutc", "channel_served_sampling_rates", "cache_fs", "error_message")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     FILE_OPENED_FIELD_NUMBER: _ClassVar[int]
     NUMBER_OF_CHANNELS_FIELD_NUMBER: _ClassVar[int]
@@ -30,6 +34,8 @@ class FileInfoResponse(_message.Message):
     DURATION_S_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_START_UUTC_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_END_UUTC_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_SERVED_SAMPLING_RATES_FIELD_NUMBER: _ClassVar[int]
+    CACHE_FS_FIELD_NUMBER: _ClassVar[int]
     ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     file_opened: bool
@@ -41,8 +47,10 @@ class FileInfoResponse(_message.Message):
     duration_s: float
     channel_start_uutc: _containers.RepeatedScalarFieldContainer[int]
     channel_end_uutc: _containers.RepeatedScalarFieldContainer[int]
+    channel_served_sampling_rates: _containers.RepeatedScalarFieldContainer[float]
+    cache_fs: float
     error_message: str
-    def __init__(self, file_path: _Optional[str] = ..., file_opened: _Optional[bool] = ..., number_of_channels: _Optional[int] = ..., channel_names: _Optional[_Iterable[str]] = ..., channel_sampling_rates: _Optional[_Iterable[float]] = ..., start_uutc: _Optional[int] = ..., end_uutc: _Optional[int] = ..., duration_s: _Optional[float] = ..., channel_start_uutc: _Optional[_Iterable[int]] = ..., channel_end_uutc: _Optional[_Iterable[int]] = ..., error_message: _Optional[str] = ...) -> None: ...
+    def __init__(self, file_path: _Optional[str] = ..., file_opened: _Optional[bool] = ..., number_of_channels: _Optional[int] = ..., channel_names: _Optional[_Iterable[str]] = ..., channel_sampling_rates: _Optional[_Iterable[float]] = ..., start_uutc: _Optional[int] = ..., end_uutc: _Optional[int] = ..., duration_s: _Optional[float] = ..., channel_start_uutc: _Optional[_Iterable[int]] = ..., channel_end_uutc: _Optional[_Iterable[int]] = ..., channel_served_sampling_rates: _Optional[_Iterable[float]] = ..., cache_fs: _Optional[float] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class SignalRangeRequest(_message.Message):
     __slots__ = ("file_path", "channel_names", "start_uutc", "end_uutc")

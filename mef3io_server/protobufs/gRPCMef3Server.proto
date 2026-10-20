@@ -14,6 +14,13 @@ service gRPCMef3Server {
 
 message OpenFileRequest {
   string file_path = 1;
+  // Serve this client's reads (and cache and prefetch them) at this rate, Hz:
+  // order-preserving min-max of the original. Unset: each channel's own rate.
+  // Refused when a channel is recorded below it, unless allow_mixed_rates.
+  optional double cache_fs = 2;
+  // With cache_fs: serve a channel recorded below cache_fs at its own rate
+  // instead of refusing the open.
+  optional bool allow_mixed_rates = 3;
 }
 
 message FileInfoRequest {
@@ -34,6 +41,11 @@ message FileInfoResponse {
   optional double duration_s = 8;
   repeated int64 channel_start_uutc = 9;
   repeated int64 channel_end_uutc = 10;
+  // The rate each channel is served at for this client (parallel to
+  // channel_names): its own rate, or the session's cache_fs.
+  repeated double channel_served_sampling_rates = 11;
+  // The session's cache_fs, when it set one.
+  optional double cache_fs = 12;
   optional string error_message = 99;
 }
 

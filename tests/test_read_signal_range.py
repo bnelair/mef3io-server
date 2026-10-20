@@ -79,7 +79,7 @@ def test_repeated_and_overlapping_requests_use_cache(fm_and_file):
 
     # Overlapping sub-window must match the corresponding slice of the first read.
     sub = fm.read_signal_range(fp, channels, t1 + 2_000_000, t2 - 2_000_000)['array']
-    fs = fm._files[fp]['tile_meta'][channels[0]][0]
+    fs = fm._files[fp]['native_fs'][channels[0]]
     off = int(round(2_000_000 * fs / 1e6))
     np.testing.assert_allclose(sub, first[:, off:off + sub.shape[1]], atol=1e-4, equal_nan=True)
 
@@ -139,7 +139,7 @@ def test_window_prefetch_targets_ahead_and_behind(fm_and_file):
         state = fm._files[fp]
         meta = fm._get_tile_meta_unsafe(state, ch)
         actual_path = state['actual_path']
-    fs, cs, S = meta
+    fs, cs, S, _native = meta
     fm.prefetch_ahead_windows = 1
     fm.prefetch_behind_windows = 1
 

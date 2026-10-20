@@ -57,16 +57,34 @@ class Mef3Client:
         self.channel = grpc.insecure_channel(address)
         self.stub = pb2_grpc.gRPCMef3ServerStub(self.channel)
 
-    def open_file(self, file_path):
+    def open_file(self, file_path, cache_fs=None, allow_mixed_rates=False):
         """
         Open a MEF3 file on the server.
 
         Args:
             file_path (str): Path to the MEF3 file.
+            cache_fs (float or None): Serve (and cache and prefetch) this client's
+                reads of the file at this rate, Hz: order-preserving min-max of
+                the original, so spikes are kept. ``None``: each channel's own
+                rate. Opening again with other settings replaces them.
+            allow_mixed_rates (bool): With ``cache_fs``: serve a channel recorded
+                below ``cache_fs`` at its own rate. Without it, such a channel
+                makes the open fail (``file_opened`` False, ``error_message``
+                names the channels).
         Returns:
-            dict: File info including file_path, file_opened, number_of_channels, channel_names, etc.
+            dict: File info including file_path, file_opened, number_of_channels,
+            channel_names, ``channel_served_sampling_rates`` (the rate each
+            channel is served at) and ``cache_fs``.
         """
-        resp = self.stub.OpenFile(pb2.OpenFileRequest(file_path=file_path), metadata=self._metadata)
+        req = pb2.OpenFileRequest(file_path=file_path, allow_mixed_rates=bool(allow_mixed_rates))
+        if cache_fs is not None:
+            req.cache_fs = float(cache_fs)
+        resp = self.stub.OpenFile(req, metadata=self._metadata)
+        if cache_fs is not None and resp.file_opened and not resp.HasField("cache_fs"):
+            # A server from before cache_fs ignores the field and serves the
+            # original rate: say so rather than return many times the data.
+            raise RuntimeError("the server does not support cache_fs (it is older than "
+                               "this client); upgrade mef3io-server or open without it")
         return self._file_info_to_dict(resp)
 
     @staticmethod
@@ -85,6 +103,9 @@ class Mef3Client:
             "channel_sampling_rates": list(getattr(resp, "channel_sampling_rates", [])),
             "channel_start_uutc": list(getattr(resp, "channel_start_uutc", [])),
             "channel_end_uutc": list(getattr(resp, "channel_end_uutc", [])),
+            "channel_served_sampling_rates": list(
+                getattr(resp, "channel_served_sampling_rates", [])),
+            "cache_fs": resp.cache_fs if resp.HasField("cache_fs") else None,
             "start_uutc": getattr(resp, "start_uutc", None),
             "end_uutc": getattr(resp, "end_uutc", None),
             "duration_s": getattr(resp, "duration_s", None),
