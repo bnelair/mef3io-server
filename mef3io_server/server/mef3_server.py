@@ -107,6 +107,7 @@ class gRPCMef3Server(gRPCMef3Server_pb2_grpc.gRPCMef3ServerServicer):
                 request.start_uutc,
                 request.end_uutc,
                 client_id=client_id_of(context),
+                n_points=request.n_points if request.HasField("n_points") else None,
             )
         except Exception as e:
             logger.error(f"Exception in GetSignalRange: {e}")

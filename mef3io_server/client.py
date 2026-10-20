@@ -141,7 +141,7 @@ class Mef3Client:
         resp = self.stub.FileInfo(pb2.FileInfoRequest(file_path=file_path), metadata=self._metadata)
         return self._file_info_to_dict(resp)
 
-    def get_signal_range(self, file_path, channels, start_uutc, end_uutc):
+    def get_signal_range(self, file_path, channels, start_uutc, end_uutc, n_points=None):
         """
         Read arbitrary channels over an arbitrary ``[start_uutc, end_uutc)`` window.
 
@@ -157,6 +157,12 @@ class Mef3Client:
                 all channels in the file.
             start_uutc (int): Inclusive window start in microseconds (uUTC).
             end_uutc (int): Exclusive window end in microseconds (uUTC).
+            n_points (int or None): Return exactly this many points per channel,
+                e.g. one per pixel of the view. Each is a real sample (its
+                bucket's minimum or maximum, chosen by MinMaxLTTB so peaks and
+                the line's shape survive), evenly spaced: ``fs`` is then
+                ``n_points / window``. A window with fewer samples comes back
+                unchanged (never upsampled). ``None``: the session's rate.
 
         Returns:
             dict: A dict with keys ``array`` (``np.ndarray`` of shape
@@ -170,6 +176,8 @@ class Mef3Client:
             start_uutc=int(start_uutc),
             end_uutc=int(end_uutc),
         )
+        if n_points is not None:
+            req.n_points = int(n_points)
         arrays = []
         channel_names = None
         fs = None
