@@ -91,6 +91,30 @@ data = client.get_signal_range(path, channels, t0, t1)  # data["fs"] == 128
   multiple of `cache_fs`, a bucket at a tile edge can be one original sample
   shorter or longer than its neighbours; no sample is lost or counted twice.
 
+## Exactly as many points as the view has pixels (`n_points`)
+
+```python
+data = client.get_signal_range(path, channels, t0, t1, n_points=584)
+data["array"].shape   # (len(channels), 584)
+data["fs"]            # 584 / window length in seconds
+```
+
+- **MinMaxLTTB.** The window is cut into `n_points` buckets. Each point is a
+  real sample, its bucket's minimum or maximum, chosen to keep the line's shape
+  (Largest-Triangle-Three-Buckets). One point per bucket means one of a
+  bucket's two extremes is left out, but each channel's overall maximum and
+  minimum in the window are always among the points, so the amplitude is never
+  understated (if both fall in one bucket, the larger excursion is kept).
+- The requested channels must be served at one rate, as for any read; with
+  `allow_mixed_rates`, request channels of different rates separately.
+- **The cheapest source with detail to spare.** If the session has a
+  `cache_fs` and it holds at least `2 * n_points` samples in the window, the
+  points come from the cached data with no decoding. When you zoom in further,
+  they come from the original rate.
+- **Never upsampled.** When the window holds `n_points` samples or fewer at
+  the original rate, they are returned unchanged.
+- Without `n_points`, reads come back at the session's rate, as before.
+
 ## Cleaning up
 
 ### Sessions

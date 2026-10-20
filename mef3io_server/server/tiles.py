@@ -13,6 +13,7 @@ max), unlike plain decimation.
 """
 import numpy as np
 
+from mef3io_server.server.reduce import minmax_ordered
 from mef3io_server.server.tile_cache import CACHE_DTYPE
 
 
@@ -21,41 +22,6 @@ def samples_per_tile(tile_duration_s, fs, native_fs):
     if fs < native_fs:
         return 2 * max(1, int(round(tile_duration_s * fs / 2)))
     return max(1, int(round(tile_duration_s * fs)))
-
-
-def minmax_ordered(x, n_pairs):
-    """Order-preserving min-max of ``x`` into ``n_pairs`` buckets (2 * n_pairs values).
-
-    Buckets split ``x`` evenly by sample count (the samples are evenly spaced
-    in time, with NaN where the recording has a gap). In each bucket the min
-    and the max are emitted in the order they occur; an all-NaN bucket gives
-    two NaN.
-    """
-    x = np.asarray(x, dtype=np.float64).reshape(-1)
-    out = np.full(2 * n_pairs, np.nan)
-    n = x.shape[0]
-    if n == 0 or n_pairs <= 0:
-        return out
-    edges = (np.arange(n_pairs + 1, dtype=np.int64) * n) // n_pairs
-    lens = np.diff(edges)
-    width = int(lens.max())
-    if width == 0:
-        return out
-    cols = np.arange(width, dtype=np.int64)
-    inside = cols[None, :] < lens[:, None]
-    idx = np.where(inside, edges[:-1, None] + cols[None, :], 0)
-    v = np.where(inside, x[idx], np.nan)
-    finite = ~np.isnan(v)
-    has = finite.any(axis=1)
-    i_min = np.where(finite, v, np.inf).argmin(axis=1)
-    i_max = np.where(finite, v, -np.inf).argmax(axis=1)
-    rows = np.arange(n_pairs)
-    first = np.minimum(i_min, i_max)
-    second = np.maximum(i_min, i_max)
-    out[0::2] = v[rows, first]
-    out[1::2] = v[rows, second]
-    out[np.repeat(~has, 2)] = np.nan
-    return out
 
 
 def read_tile(reader, channel, block_index, fs, channel_start_uutc, samples, native_fs,

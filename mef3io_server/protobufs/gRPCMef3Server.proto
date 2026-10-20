@@ -56,6 +56,10 @@ message SignalRangeRequest {
   repeated string channel_names = 2;
   int64 start_uutc = 3;
   int64 end_uutc = 4;
+  // Return exactly this many points per channel (e.g. one per pixel), chosen
+  // by MinMaxLTTB: real samples that keep peaks and the line's shape. Never
+  // upsamples: a window holding fewer samples is returned as is.
+  optional int64 n_points = 5;
 }
 
 message SignalChunk {

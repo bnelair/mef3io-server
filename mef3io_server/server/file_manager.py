@@ -6,6 +6,7 @@ import mef3io_server.protobufs.gRPCMef3Server_pb2 as gRPCMef3Server_pb2
 
 from mef3io_server.server.tile_cache import TileCache, CACHE_DTYPE
 from mef3io_server.server.reader_pool import ReaderProcessPool
+from mef3io_server.server.reduce import minmax_lttb
 from mef3io_server.server.tiles import read_tile, samples_per_tile
 from mef3io import MefReader
 from mef3io_server.server.log_manager import get_logger
@@ -442,7 +443,54 @@ class FileManager:
                     s.discard(key)
 
     def read_signal_range(self, file_path, channels, start_uutc, end_uutc, prefetch=True,
-                          client_id=""):
+                          client_id="", n_points=None):
+        """Read channels over ``[start_uutc, end_uutc)``; see :meth:`_read_level`.
+
+        ``n_points`` (optional): return exactly that many points per channel,
+        for example one per pixel, chosen by MinMaxLTTB (``reduce.minmax_lttb``):
+        each point is a real sample, its bucket's minimum or maximum, picked to
+        keep the line's shape, and each channel's overall max and min are
+        always included. The source is the cheapest that still has
+        detail to spare: the session's cached rate when it holds at least
+        ``2 * n_points`` samples in the window, else the original rate (zoomed
+        in). When the original holds ``n_points`` samples or fewer it is
+        returned unchanged: ``n_points`` never upsamples. The points are evenly
+        spaced, so ``fs`` in the result is ``n_points / window``.
+        """
+        if n_points is None:
+            return self._read_level(file_path, channels, start_uutc, end_uutc, prefetch,
+                                    client_id)
+        n_points = int(n_points)
+        if n_points <= 0:
+            raise ValueError("n_points must be positive")
+        if end_uutc <= start_uutc:
+            raise ValueError("end_uutc must be greater than start_uutc")
+        window_s = (end_uutc - start_uutc) / 1e6
+        with self._lock:
+            if file_path not in self._files:
+                raise ValueError(f"File not open: {file_path}")
+            state = self._files[file_path]
+            names = list(channels) if channels else list(state['reader'].channels)
+            session = self._sessions.get((client_id, file_path)) or {}
+            cache_fs = session.get('settings', {}).get('cache_fs')
+            try:
+                served = min(self._get_tile_meta_unsafe(state, ch, cache_fs)[0] for ch in names)
+            except Exception:  # noqa: BLE001 - unknown channels: _read_level says which
+                served = None
+        native = False
+        if served is not None and round(window_s * served) < 2 * n_points:
+            native = True  # zoomed in: the cached rate has too little detail
+        result = self._read_level(file_path, channels, start_uutc, end_uutc, prefetch,
+                                  client_id, native=native)
+        data = result['array']
+        if data.shape[1] <= n_points:
+            return result  # never upsample
+        result['array'] = minmax_lttb(data, n_points).astype(CACHE_DTYPE)
+        result['fs'] = n_points / window_s
+        return result
+
+    def _read_level(self, file_path, channels, start_uutc, end_uutc, prefetch=True,
+                    client_id="", native=False):
         """Read arbitrary channels over an arbitrary ``[start_uutc, end_uutc)`` window.
 
         Data is served from the per-channel tile cache, reading only the tiles that
@@ -489,7 +537,7 @@ class FileManager:
             if invalid:
                 raise ValueError(f"Unknown channels: {invalid}")
             session = self._sessions.get((client_id, file_path)) or {}
-            cache_fs = session.get('settings', {}).get('cache_fs')
+            cache_fs = None if native else session.get('settings', {}).get('cache_fs')
             metas = {ch: self._get_tile_meta_unsafe(state, ch, cache_fs) for ch in channels}
 
         if end_uutc <= start_uutc:
@@ -684,7 +732,8 @@ class FileManager:
                 if s is not None:
                     s.discard((channel, fs, block_index))
 
-    def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id=""):
+    def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id="",
+                            n_points=None):
         """Yield a ``[start_uutc, end_uutc)`` read as ~2.5MB streamed SignalChunks.
 
         Wraps :meth:`read_signal_range` for the gRPC ``GetSignalRange`` RPC. On any
@@ -692,7 +741,7 @@ class FileManager:
         """
         try:
             result = self.read_signal_range(file_path, list(channel_names), start_uutc, end_uutc,
-                                            client_id=client_id)
+                                            client_id=client_id, n_points=n_points)
         except Exception as e:
             logger.error(f"Error in read_signal_range for {file_path}: {e}")
             yield gRPCMef3Server_pb2.SignalChunk(file_path=file_path, error_message=str(e))
