@@ -62,7 +62,7 @@ class FileManager:
                  use_process_pool=True, reader_processes=None, prefetch_processes=None,
                  min_parallel_tiles=2, prefetch_ahead_windows=1,
                  prefetch_behind_windows=1, cache_ttl_s=1800,
-                 session_ttl_s=1800, max_sessions=1000):
+                 session_ttl_s=1800, max_sessions=1000, respect_mef_blocks=False):
         """
         Initialize the FileManager.
 
@@ -88,6 +88,13 @@ class FileManager:
                 requested window to prefetch (paging forward).
             prefetch_behind_windows (int): How many full windows *behind* the
                 requested window to prefetch (paging backward).
+            respect_mef_blocks (bool): Round each channel's tile length to a whole
+                number of its MEF blocks (to the nearest; at least one) and start
+                tiles at its first block, so tile edges fall on block boundaries
+                and no block is decoded for two tiles. The block length is read
+                from the block index (mef3io's ``block_envelope``). After a gap,
+                or with uneven blocks, edges can drift off block boundaries:
+                reads stay exact, only those blocks are decoded twice.
             session_ttl_s (float or None): Close a client's session after this many
                 idle seconds (sessions of clients that send no id never expire).
             max_sessions (int): Most client sessions at once; opening one more
@@ -133,6 +140,7 @@ class FileManager:
         self._tile_in_progress = {}
 
         # --- Sessions: (client_id, file_path) -> {'last_used': monotonic s} ---
+        self.respect_mef_blocks = bool(respect_mef_blocks)
         self.session_ttl_s = float(session_ttl_s) if session_ttl_s and session_ttl_s > 0 else None
         self.max_sessions = max(1, int(max_sessions))
         self._sessions = {}
@@ -397,9 +405,32 @@ class FileManager:
         meta = state['tile_meta'].get((channel, fs))
         if meta is None:
             cs = int(state['reader'].get_property('start_time', channel))
-            meta = (fs, cs, samples_per_tile(self.tile_duration_s, fs, native), native)
+            meta = (fs, cs, samples_per_tile(self._tile_duration_unsafe(state, channel, cs),
+                                             fs, native), native)
             state['tile_meta'][(channel, fs)] = meta
         return meta
+
+    def _tile_duration_unsafe(self, state, channel, channel_start):
+        """The tile length for a channel: ``tile_duration_s``, or with
+        ``respect_mef_blocks`` the nearest whole number of its MEF blocks."""
+        if not self.respect_mef_blocks:
+            return self.tile_duration_s
+        block_s = state.setdefault('block_s', {}).get(channel)
+        if block_s is None:
+            block_s = 0.0
+            try:
+                # The first blocks are enough: one index read, not the channel's.
+                env = state['reader'].block_envelope(channel, channel_start,
+                                                     channel_start + 3_600_000_000)
+                lengths = (env['end_uutc'] - env['start_uutc'])[:100]
+                if len(lengths):
+                    block_s = float(np.median(lengths)) / 1e6
+            except Exception as e:  # noqa: BLE001 - fall back to the plain length
+                logger.warning(f"Cannot read the block length of {channel}: {e}")
+            state['block_s'][channel] = block_s
+        if block_s <= 0:
+            return self.tile_duration_s
+        return max(1, int(round(self.tile_duration_s / block_s))) * block_s
 
     def _read_tile_from_disk(self, rdr, channel, block_index, meta):
         """Read one tile for a channel (see ``tiles.read_tile``)."""
@@ -731,6 +762,59 @@ class FileManager:
                 s = self._tile_in_progress.get(file_path)
                 if s is not None:
                     s.discard((channel, fs, block_index))
+
+    def read_envelope(self, file_path, channels=None, start_uutc=None, end_uutc=None,
+                      client_id=""):
+        """Per-block min/max of channels, from the MEF block index alone.
+
+        Nothing is decoded and nothing is cached (the index is small, and mef3io
+        keeps it in memory). Yields ``(channel, dict)`` with NumPy arrays
+        ``start_uutc``, ``end_uutc``, ``min``, ``max`` (see
+        ``mef3io.Reader.block_envelope``). The file must be open by someone;
+        the caller's session, if any, is kept alive.
+        """
+        with self._lock:
+            if file_path not in self._files:
+                raise ValueError(f"File not open: {file_path}")
+            self._touch_session_unsafe(client_id, file_path)
+            rdr = self._files[file_path]['reader']
+            all_channels = list(rdr.channels)
+        channels = list(channels) if channels else all_channels
+        invalid = [c for c in channels if c not in all_channels]
+        if invalid:
+            raise ValueError(f"Unknown channels: {invalid}")
+        for ch in channels:
+            # Outside the lock: mef3io readers take overlapping calls.
+            try:
+                env = rdr.block_envelope(ch, start_uutc, end_uutc)
+            except AttributeError:  # the compat reader was closed meanwhile
+                raise ValueError(f"File closed during the request: {file_path}") from None
+            yield ch, env
+
+    #: Most envelope rows in one message (32 B a row: ~3.2 MB, under gRPC's
+    #: default 4 MB receive limit). A long recording in 1-s blocks has far
+    #: more rows per channel, so a channel is sent in several messages.
+    ENVELOPE_CHUNK_ROWS = 100_000
+
+    def stream_envelope(self, file_path, channel_names, start_uutc=None, end_uutc=None,
+                        client_id=""):
+        """Yield ``ChannelEnvelope`` messages, each channel in chunks of at most
+        ``ENVELOPE_CHUNK_ROWS`` rows (in order); an error as a single message."""
+        step = max(1, int(self.ENVELOPE_CHUNK_ROWS))
+        try:
+            for ch, env in self.read_envelope(file_path, list(channel_names), start_uutc,
+                                              end_uutc, client_id):
+                rows = len(env['start_uutc'])
+                for a in range(0, max(rows, 1), step):
+                    b = a + step
+                    yield gRPCMef3Server_pb2.ChannelEnvelope(
+                        file_path=file_path, channel_name=ch,
+                        start_uutc=env['start_uutc'][a:b].tolist(),
+                        end_uutc=env['end_uutc'][a:b].tolist(),
+                        min=env['min'][a:b].tolist(), max=env['max'][a:b].tolist())
+        except Exception as e:
+            logger.error(f"Error in read_envelope for {file_path}: {e}")
+            yield gRPCMef3Server_pb2.ChannelEnvelope(file_path=file_path, error_message=str(e))
 
     def stream_signal_range(self, file_path, channel_names, start_uutc, end_uutc, client_id="",
                             n_points=None):

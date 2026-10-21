@@ -15,6 +15,7 @@ grid and no server-side channel selection; each request is self-contained.
 | `OpenFile` | `open_file(file_path, cache_fs=None, allow_mixed_rates=False)` | Open a file for this client and return its metadata. With `cache_fs`, this client's reads are served, cached and prefetched at that rate (order-preserving min-max); `channel_served_sampling_rates` lists the rate per channel. |
 | `CloseFile` | `close_file(file_path)` | End this client's session on the file. The reader is released, and the file's tiles purged from the shared cache, when no other client's session uses it. |
 | `ListOpenFiles` | `list_open_files()` | List the currently open files. |
+| `GetEnvelope` | `get_envelope(file_path, channels=None, start_uutc=None, end_uutc=None)` | Per-block min/max of channels from the MEF block index alone (nothing decoded); streams one `ChannelEnvelope` per channel. |
 
 ## Streaming
 

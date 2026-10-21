@@ -20,7 +20,7 @@ dependencies = [
     "grpcio~=1.81.0",
     "grpcio-tools~=1.81.0",
     "protobuf>=6.33.5,<7.0.0",
-    "mef3io>=1.5.0",
+    "mef3io>=1.5.1",
 ]
 
 [project.optional-dependencies]
