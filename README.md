@@ -15,8 +15,9 @@ A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysio
     index alone.
 - **One session per client and file**: re-opening reuses it, settings never
   conflict between tools, and decoded tiles are shared
-- Optional **block-aligned tiles** (`RESPECT_MEF_BLOCKS`): no MEF block is
-  decoded twice
+- Optional **block-aligned tiles** (`RESPECT_MEF_BLOCKS`): tile edges fall on
+  MEF block boundaries, so a block is not decoded for two tiles (after a gap,
+  or with uneven blocks, edges can drift; reads stay exact)
 - Configurable via environment variables or Docker
 - Ready for deployment in Docker and CI/CD pipelines
 
