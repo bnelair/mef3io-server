@@ -14,7 +14,19 @@ processes and configurable window prefetch.
 ## Why mef3io-server
 
 - **Channels-and-time only** — there is no segment grid and no server-side
-  channel selection state; each request is self-contained and self-describing.
+  channel selection state; each request names its channels and window, and
+  every reply says what it holds (channels, rate, times).
+- **Sessions per client** — each client (a tool, a user) has its own session
+  per file, with its own settings; re-opening reuses it, and idle sessions are
+  closed. A client id travels with every call; it is a name tag, not
+  authentication.
+- **Viewer reads at any zoom**:
+  - a per-session cache rate (`cache_fs`, order-preserving min-max, so spikes
+    survive);
+  - exactly `n_points` per request (MinMaxLTTB);
+  - a whole-recording envelope from the MEF block index alone.
+
+  See the [client guide](guides/client.md).
 - **Shared tile cache** — a single byte-budgeted, per-channel cache across all
   open files, with an idle TTL so finished sessions free memory before the
   budget is hit.

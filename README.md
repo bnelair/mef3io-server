@@ -7,6 +7,16 @@ A gRPC server for efficient, concurrent access to MEF3 (Multiscale Electrophysio
 - Shared, byte-budgeted per-channel **tile cache** with an idle TTL
 - **Parallel MEF3 decode** across worker processes, backed by [mef3io](https://github.com/bnelair/mef3io) (one session per worker)
 - Configurable **window look-ahead/behind prefetch** for smooth paging
+- **Viewer reads at any zoom**:
+  - a per-session **cache rate** (`cache_fs`), with order-preserving min-max
+    downsampling that keeps spikes;
+  - exactly **`n_points`** per request (MinMaxLTTB, one real sample per pixel);
+  - a whole-recording **envelope** of per-block min/max read from the MEF
+    index alone.
+- **One session per client and file**: re-opening reuses it, settings never
+  conflict between tools, and decoded tiles are shared
+- Optional **block-aligned tiles** (`RESPECT_MEF_BLOCKS`): no MEF block is
+  decoded twice
 - Configurable via environment variables or Docker
 - Ready for deployment in Docker and CI/CD pipelines
 
